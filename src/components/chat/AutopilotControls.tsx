@@ -80,10 +80,10 @@ export function AutopilotControls({ chatId }: AutopilotControlsProps) {
   };
 
   return (
-    <div className="bg-purple-50 border-b p-4">
-      <div className="mb-3">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          시나리오 / 상황 설정
+    <div className="p-5">
+      <div className="mb-4">
+        <label className="block text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wider">
+          Scenario Setup
         </label>
         <textarea
           value={chat.autopilotScenario || scenario}
@@ -95,15 +95,15 @@ export function AutopilotControls({ chatId }: AutopilotControlsProps) {
           }}
           placeholder="대화가 진행될 상황을 설명해주세요..."
           rows={2}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
+          className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200 resize-none"
         />
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         {isRunning ? (
           <button
             onClick={handlePause}
-            className="flex items-center gap-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+            className="flex items-center gap-2 px-5 py-2.5 bg-black text-white rounded-full hover:bg-gray-800 transition-all duration-200 shadow-sm text-sm font-medium"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
               <rect x="6" y="4" width="4" height="16" />
@@ -114,7 +114,7 @@ export function AutopilotControls({ chatId }: AutopilotControlsProps) {
         ) : (
           <button
             onClick={handlePlay}
-            className="flex items-center gap-1 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+            className="flex items-center gap-2 px-5 py-2.5 bg-black text-white rounded-full hover:bg-gray-800 transition-all duration-200 shadow-sm text-sm font-medium"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
               <path d="M8 5v14l11-7z" />
@@ -125,7 +125,7 @@ export function AutopilotControls({ chatId }: AutopilotControlsProps) {
 
         <button
           onClick={handleStep}
-          className="flex items-center gap-1 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+          className="flex items-center gap-2 px-5 py-2.5 bg-white text-gray-900 border border-gray-200 rounded-full hover:bg-gray-50 transition-all duration-200 shadow-sm text-sm font-medium"
         >
           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
             <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />

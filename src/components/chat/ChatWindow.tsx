@@ -1,7 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { ChatBubble } from './ChatBubble';
 import { ChatInput } from './ChatInput';
-import { AutopilotControls } from './AutopilotControls';
 import { useSettingsStore, useChatStore, useCharacterStore, useUserStore } from '@/stores';
 import { getThemeConfig } from '@/utils/theme';
 import { callGeminiAPI, callOpenAIAPI, buildCharacterPrompt, buildBranchPrompt, translateText } from '@/services/aiService';
@@ -179,48 +178,53 @@ export function ChatWindow() {
 
   if (!currentChat || !character) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-gray-50">
-        <div className="text-center text-gray-500">
-          <p className="text-lg mb-2">채팅을 시작하려면</p>
-          <p className="text-sm">왼쪽에서 캐릭터를 선택하세요</p>
+      <div className="flex-1 flex items-center justify-center bg-[#F5F5F7]">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-white rounded-xl shadow-sm flex items-center justify-center mx-auto mb-4 border border-gray-100">
+            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-1">No Chat Selected</h3>
+          <p className="text-sm text-gray-500">Select a character from the sidebar to start chatting</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col bg-[#F5F5F7] relative">
       {/* 채팅방 헤더 */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-white border-b">
+      <div className="flex items-center gap-4 px-6 py-4 bg-white/80 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-10">
         {themeConfig.showProfilePicture && (
-          <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center">
+          <div className="relative">
             {character.fieldProfile?.profileImage ? (
               <img
                 src={character.fieldProfile.profileImage}
                 alt=""
-                className="w-10 h-10 rounded-full object-cover"
+                className="w-10 h-10 rounded-xl object-cover shadow-sm border border-gray-100"
               />
             ) : (
-              <span className="text-gray-600">
-                {character.fieldProfile?.name?.charAt(0) || '?'}
-              </span>
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center shadow-inner">
+                <span className="text-gray-500 font-semibold">
+                  {character.fieldProfile?.name?.charAt(0) || '?'}
+                </span>
+              </div>
             )}
+            <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 border-2 border-white rounded-full ${currentChat.mode === 'autopilot' ? 'bg-purple-500' : 'bg-green-500'}`}></div>
           </div>
         )}
         <div>
-          <h2 className="font-medium">
+          <h2 className="font-bold text-gray-900 leading-tight">
             {character.fieldProfile?.name || character.freeProfile?.slice(0, 20) || '캐릭터'}
           </h2>
-          <p className="text-xs text-gray-500">
-            {currentChat.mode === 'autopilot' ? '오토파일럿 모드' : '몰입 모드'}
-          </p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <p className="text-xs font-medium text-gray-500">
+              {currentChat.mode === 'autopilot' ? 'Autopilot Mode' : 'Immersion Mode'}
+            </p>
+          </div>
         </div>
       </div>
-
-      {/* 오토파일럿 컨트롤 */}
-      {currentChat.mode === 'autopilot' && (
-        <AutopilotControls chatId={currentChat.id} />
-      )}
 
       {/* 메시지 영역 */}
       <div className={`flex-1 overflow-y-auto p-4 ${themeConfig.background}`}>

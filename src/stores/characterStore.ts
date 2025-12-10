@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Character, ProfileInputMode, OutputLanguage } from '@/types';
+import { Character } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
 interface CharacterState {

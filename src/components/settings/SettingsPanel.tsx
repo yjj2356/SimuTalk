@@ -58,33 +58,33 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto m-4">
-        <div className="px-6 py-4 border-b flex items-center justify-between">
-          <h2 className="text-lg font-bold">설정</h2>
+    <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto m-4 shadow-2xl border border-gray-100">
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white/80 backdrop-blur-md z-10">
+          <h2 className="text-xl font-bold tracking-tight">Settings</h2>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-8">
           {/* 테마 설정 */}
           <section>
-            <h3 className="text-sm font-medium text-gray-700 mb-3">테마</h3>
-            <div className="grid grid-cols-2 gap-2">
+            <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wider">Theme</h3>
+            <div className="grid grid-cols-2 gap-3">
               {(Object.keys(themeConfigs) as ThemeType[]).map((theme) => (
                 <button
                   key={theme}
                   onClick={() => setTheme(theme)}
-                  className={`p-3 rounded-lg border text-left ${
+                  className={`p-4 rounded-lg border text-left transition-all duration-200 ${
                     settings.theme === theme
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-300 hover:bg-gray-50'
+                      ? 'border-black bg-black text-white shadow-md'
+                      : 'border-gray-200 hover:bg-gray-50 text-gray-700'
                   }`}
                 >
                   <span className="font-medium">{themeConfigs[theme].name}</span>
@@ -95,78 +95,76 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
           {/* API 키 설정 */}
           <section>
-            <h3 className="text-sm font-medium text-gray-700 mb-3">API 키</h3>
-            <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wider">API Keys</h3>
+            <div className="space-y-4">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">
-                  Google Gemini API 키
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                  Google Gemini API Key
                 </label>
                 <input
                   type="password"
                   value={geminiKey}
                   onChange={(e) => setGeminiKey(e.target.value)}
                   placeholder="AIza..."
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200"
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">
-                  OpenAI API 키
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                  OpenAI API Key
                 </label>
                 <input
                   type="password"
                   value={openaiKey}
                   onChange={(e) => setOpenaiKey(e.target.value)}
                   placeholder="sk-..."
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200"
                 />
               </div>
               <button
                 onClick={handleSaveApiKeys}
-                className="w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm"
+                className="w-full py-2.5 bg-black text-white rounded-xl hover:bg-gray-800 text-sm font-medium transition-all duration-200 shadow-sm"
               >
-                API 키 저장
+                Save API Keys
               </button>
             </div>
           </section>
 
           {/* 기본 AI 제공자 */}
           <section>
-            <h3 className="text-sm font-medium text-gray-700 mb-3">기본 AI</h3>
-            <div className="flex gap-2 mb-3">
+            <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wider">Default AI Provider</h3>
+            <div className="flex gap-3 mb-4">
               <button
                 onClick={() => setDefaultAIProvider('gemini')}
-                className={`flex-1 py-2 px-4 rounded-lg border text-sm ${
+                className={`flex-1 py-2.5 px-4 rounded-xl border text-sm font-medium transition-all duration-200 ${
                   settings.defaultAIProvider === 'gemini'
-                    ? 'bg-blue-500 text-white border-blue-500'
-                    : 'border-gray-300 hover:bg-gray-50'
+                    ? 'bg-black text-white border-black shadow-md'
+                    : 'border-gray-200 hover:bg-gray-50 text-gray-700'
                 }`}
               >
                 Gemini
               </button>
               <button
                 onClick={() => setDefaultAIProvider('openai')}
-                className={`flex-1 py-2 px-4 rounded-lg border text-sm ${
+                className={`flex-1 py-2.5 px-4 rounded-xl border text-sm font-medium transition-all duration-200 ${
                   settings.defaultAIProvider === 'openai'
-                    ? 'bg-blue-500 text-white border-blue-500'
-                    : 'border-gray-300 hover:bg-gray-50'
+                    ? 'bg-black text-white border-black shadow-md'
+                    : 'border-gray-200 hover:bg-gray-50 text-gray-700'
                 }`}
               >
                 OpenAI
               </button>
             </div>
-          </section>
 
-          {/* 모델 선택 */}
-          <section>
-            <h3 className="text-sm font-medium text-gray-700 mb-3">모델 선택</h3>
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Gemini 모델</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                  Gemini Model
+                </label>
                 <select
                   value={settings.geminiModel}
                   onChange={(e) => setGeminiModel(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200"
                 >
                   {GEMINI_MODELS.map((model) => (
                     <option key={model.id} value={model.id}>
@@ -176,11 +174,13 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">OpenAI 모델</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                  OpenAI Model
+                </label>
                 <select
                   value={settings.openaiModel}
                   onChange={(e) => setOpenAIModel(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200"
                 >
                   {OPENAI_MODELS.map((model) => (
                     <option key={model.id} value={model.id}>
@@ -192,39 +192,41 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             </div>
           </section>
 
-          {/* 번역 설정 */}
+          {/* 기타 설정 */}
           <section>
-            <h3 className="text-sm font-medium text-gray-700 mb-3">번역</h3>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.translateUserMessages}
-                onChange={(e) => setTranslateUserMessages(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
-              />
-              <span className="text-sm">
-                내 메시지도 외국어로 번역하여 표시
-              </span>
-            </label>
+            <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wider">Other Settings</h3>
+            <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 bg-gray-50/50">
+              <span className="text-sm font-medium text-gray-700">Translate User Messages</span>
+              <button
+                onClick={() => setTranslateUserMessages(!settings.translateUserMessages)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  settings.translateUserMessages ? 'bg-black' : 'bg-gray-200'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    settings.translateUserMessages ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
           </section>
 
-          {/* 데이터 백업 */}
+          {/* 데이터 관리 */}
           <section>
-            <h3 className="text-sm font-medium text-gray-700 mb-3">
-              데이터 백업
-            </h3>
-            <div className="flex gap-2">
+            <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wider">Data Management</h3>
+            <div className="flex gap-3">
               <button
                 onClick={handleExport}
-                className="flex-1 py-2 px-4 rounded-lg border border-gray-300 hover:bg-gray-50 text-sm"
+                className="flex-1 py-2.5 px-4 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-medium text-gray-700 transition-all duration-200"
               >
-                내보내기
+                Backup Data
               </button>
               <button
                 onClick={handleImport}
-                className="flex-1 py-2 px-4 rounded-lg border border-gray-300 hover:bg-gray-50 text-sm"
+                className="flex-1 py-2.5 px-4 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-medium text-gray-700 transition-all duration-200"
               >
-                가져오기
+                Restore Data
               </button>
             </div>
           </section>

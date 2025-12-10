@@ -20,8 +20,8 @@ export const themeConfigs: Record<ThemeType, ThemeConfig> = {
     name: '카카오톡',
     showProfilePicture: true,
     chatBubble: {
-      user: 'bg-kakao-bubble text-black rounded-2xl rounded-tr-sm',
-      partner: 'bg-white text-black rounded-2xl rounded-tl-sm',
+      user: 'bg-kakao-bubble text-black rounded-xl rounded-tr-sm',
+      partner: 'bg-white text-black rounded-xl rounded-tl-sm',
     },
     background: 'bg-kakao-bg',
     contactList: {
@@ -34,8 +34,8 @@ export const themeConfigs: Record<ThemeType, ThemeConfig> = {
     name: '라인',
     showProfilePicture: true,
     chatBubble: {
-      user: 'bg-line-green text-white rounded-2xl rounded-tr-sm',
-      partner: 'bg-white text-black rounded-2xl rounded-tl-sm',
+      user: 'bg-line-green text-white rounded-xl rounded-tr-sm',
+      partner: 'bg-white text-black rounded-xl rounded-tl-sm',
     },
     background: 'bg-line-bg',
     contactList: {
@@ -48,8 +48,8 @@ export const themeConfigs: Record<ThemeType, ThemeConfig> = {
     name: 'iMessage',
     showProfilePicture: false,
     chatBubble: {
-      user: 'bg-imessage-blue text-white rounded-2xl rounded-tr-sm',
-      partner: 'bg-imessage-gray text-black rounded-2xl rounded-tl-sm',
+      user: 'bg-imessage-blue text-white rounded-xl rounded-tr-sm',
+      partner: 'bg-imessage-gray text-black rounded-xl rounded-tl-sm',
     },
     background: 'bg-white',
     contactList: {
@@ -60,15 +60,15 @@ export const themeConfigs: Record<ThemeType, ThemeConfig> = {
   },
   basic: {
     name: '기본',
-    showProfilePicture: false,
+    showProfilePicture: true,
     chatBubble: {
-      user: 'bg-blue-500 text-white rounded-lg',
-      partner: 'bg-gray-200 text-black rounded-lg',
+      user: 'bg-black text-white rounded-xl rounded-tr-sm px-4 py-2.5 shadow-sm',
+      partner: 'bg-white text-gray-900 border border-gray-200 rounded-xl rounded-tl-sm px-4 py-2.5 shadow-sm',
     },
-    background: 'bg-gray-100',
+    background: 'bg-[#F5F5F7]',
     contactList: {
-      showProfilePicture: false,
-      showStatusMessage: false,
+      showProfilePicture: true,
+      showStatusMessage: true,
       style: '',
     },
   },
