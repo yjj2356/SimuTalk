@@ -8,7 +8,7 @@ export type ChatMode = 'immersion' | 'autopilot';
 export type ProfileInputMode = 'field' | 'free';
 
 // 출력 언어 설정
-export type OutputLanguage = 'korean' | 'foreign';
+export type OutputLanguage = 'korean' | 'english' | 'japanese' | 'chinese';
 
 // AI 제공자
 export type AIProvider = 'gemini' | 'openai';
@@ -42,8 +42,8 @@ export interface Character {
   inputMode: ProfileInputMode;
   fieldProfile?: CharacterFieldProfile;
   freeProfile?: string;
-  outputLanguage: OutputLanguage;
-  foreignLanguage?: string; // 외국어 출력시 언어 설정
+  freeProfileImage?: string; // 자유 모드에서의 프로필 이미지
+  freeProfileName?: string; // 자유 모드에서의 이름
   createdAt: number;
   updatedAt: number;
 }
@@ -69,6 +69,7 @@ export interface UserProfile {
 export interface Chat {
   id: string;
   characterId: string;
+  theme: ThemeType; // 채팅방 고정 테마
   messages: Message[];
   mode: ChatMode;
   autopilotScenario?: string; // Autopilot 모드 시나리오
@@ -93,7 +94,7 @@ export interface AppSettings {
   defaultAIProvider: AIProvider;
   geminiModel: string;
   openaiModel: string;
-  translateUserMessages: boolean; // 유저 메시지도 번역할지
+  outputLanguage: OutputLanguage; // 출력 언어 설정
 }
 
 // 전체 앱 상태

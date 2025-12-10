@@ -8,11 +8,8 @@ interface AIResponse {
 // 사용 가능한 모델 목록
 export const GEMINI_MODELS = [
   { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview' },
-  { id: 'gemini-2.5-flash-preview-05-20', name: 'Gemini 2.5 Flash Preview' },
-  { id: 'gemini-2.5-pro-preview-05-06', name: 'Gemini 2.5 Pro Preview' },
-  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
-  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
-  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
+  { id: 'gemini-2.5-flash-preview-09-2025', name: 'Gemini 2.5 Flash Preview' },
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro Preview' },
 ];
 
 export const OPENAI_MODELS = [
@@ -41,7 +38,7 @@ export async function callGeminiAPI(
             },
           ],
           generationConfig: {
-            temperature: 0.9,
+            temperature: 1.0,
             topK: 40,
             topP: 0.95,
             maxOutputTokens: 2048,
@@ -122,12 +119,21 @@ export async function translateText(
   }
 }
 
+// 출력 언어 -> 언어명 매핑
+const languageNames: Record<string, string> = {
+  korean: '한국어',
+  english: 'English',
+  japanese: '日本語',
+  chinese: '中文',
+};
+
 // 캐릭터 프롬프트 생성
 export function buildCharacterPrompt(
   character: Character,
   userProfile: UserProfile,
   messages: Message[],
-  userMessage: string
+  userMessage: string,
+  outputLanguage: string = 'korean'
 ): string {
   let characterInfo = '';
   if (character.inputMode === 'field' && character.fieldProfile) {
@@ -158,13 +164,19 @@ ${u.additionalInfo ? `추가 정보: ${u.additionalInfo}` : ''}
     userInfo = userProfile.freeProfile;
   }
 
+  const charName = character.fieldProfile?.name || character.freeProfileName || '캐릭터';
   const conversationHistory = messages
     .slice(-10) // 최근 10개 메시지만
     .map((msg) => {
-      const sender = msg.senderId === 'user' ? '유저' : character.fieldProfile?.name || '캐릭터';
+      const sender = msg.senderId === 'user' ? '유저' : charName;
       return `${sender}: ${msg.content}`;
     })
     .join('\n');
+
+  const targetLanguage = languageNames[outputLanguage] || outputLanguage;
+  const languageInstruction = outputLanguage !== 'korean' 
+    ? `\n\n중요: 반드시 ${targetLanguage}로 답변하세요.`
+    : '';
 
   const prompt = `
 당신은 롤플레이 채팅에서 캐릭터를 연기하는 AI입니다.
@@ -182,7 +194,7 @@ ${conversationHistory}
 ${userMessage}
 
 위 캐릭터로서 자연스럽게 답변해주세요. 캐릭터의 성격과 말투를 반영하여 답변하세요.
-답변만 출력하고, 다른 설명은 하지 마세요.
+답변만 출력하고, 다른 설명은 하지 마세요.${languageInstruction}
   `.trim();
 
   return prompt;

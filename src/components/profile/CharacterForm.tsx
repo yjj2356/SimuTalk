@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Character, ProfileInputMode, OutputLanguage } from '@/types';
+import { useState, useRef } from 'react';
+import { Character, ProfileInputMode } from '@/types';
 import { useCharacterStore } from '@/stores';
 
 interface CharacterFormProps {
@@ -10,15 +10,10 @@ interface CharacterFormProps {
 
 export function CharacterForm({ character, onSave, onCancel }: CharacterFormProps) {
   const { addCharacter, updateCharacter } = useCharacterStore();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [inputMode, setInputMode] = useState<ProfileInputMode>(
     character?.inputMode || 'field'
-  );
-  const [outputLanguage, setOutputLanguage] = useState<OutputLanguage>(
-    character?.outputLanguage || 'korean'
-  );
-  const [foreignLanguage, setForeignLanguage] = useState(
-    character?.foreignLanguage || ''
   );
 
   // 필드 모드 상태
@@ -44,14 +39,50 @@ export function CharacterForm({ character, onSave, onCancel }: CharacterFormProp
 
   // 자유 모드 상태
   const [freeProfile, setFreeProfile] = useState(character?.freeProfile || '');
+  const [freeProfileName, setFreeProfileName] = useState(character?.freeProfileName || '');
+  const [freeProfileImage, setFreeProfileImage] = useState(character?.freeProfileImage || '');
+  const freeFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // 파일 크기 체크 (5MB 제한)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('이미지 크기는 5MB 이하여야 합니다.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setProfileImage(base64);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleFreeImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('이미지 크기는 5MB 이하여야 합니다.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setFreeProfileImage(base64);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     const characterData = {
       inputMode,
-      outputLanguage,
-      foreignLanguage: outputLanguage === 'foreign' ? foreignLanguage : undefined,
       fieldProfile:
         inputMode === 'field'
           ? {
@@ -65,6 +96,8 @@ export function CharacterForm({ character, onSave, onCancel }: CharacterFormProp
             }
           : undefined,
       freeProfile: inputMode === 'free' ? freeProfile : undefined,
+      freeProfileName: inputMode === 'free' ? freeProfileName : undefined,
+      freeProfileImage: inputMode === 'free' ? freeProfileImage : undefined,
     };
 
     if (character) {
@@ -145,15 +178,42 @@ export function CharacterForm({ character, onSave, onCancel }: CharacterFormProp
                   </div>
                   <div className="col-span-2 sm:col-span-1">
                     <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wider">
-                      프로필 이미지 URL
+                      프로필 이미지
                     </label>
-                    <input
-                      type="url"
-                      value={profileImage}
-                      onChange={(e) => setProfileImage(e.target.value)}
-                      className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200"
-                      placeholder="https://..."
-                    />
+                    <div className="flex items-center gap-3">
+                      {profileImage && (
+                        <img
+                          src={profileImage}
+                          alt="프로필 미리보기"
+                          className="w-12 h-12 rounded-lg object-cover border border-gray-200"
+                        />
+                      )}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageSelect}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex-1 py-3 px-4 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-600 hover:bg-gray-100 transition-all duration-200 text-left"
+                      >
+                        {profileImage ? '이미지 변경' : '이미지 선택'}
+                      </button>
+                      {profileImage && (
+                        <button
+                          type="button"
+                          onClick={() => setProfileImage('')}
+                          className="p-3 rounded-lg border border-gray-200 hover:bg-gray-100 transition-all duration-200"
+                        >
+                          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -226,66 +286,78 @@ export function CharacterForm({ character, onSave, onCancel }: CharacterFormProp
                 </div>
               </div>
             ) : (
-              <div>
-                <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wider">
-                  캐릭터 설명 (자유 형식)
-                </label>
-                <textarea
-                  value={freeProfile}
-                  onChange={(e) => setFreeProfile(e.target.value)}
-                  required
-                  rows={12}
-                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200 resize-none leading-relaxed"
-                  placeholder="캐릭터에 대해 자유롭게 설명해주세요. 프롬프트 형식으로 작성해도 좋습니다."
-                />
-              </div>
-            )}
+              <div className="space-y-5">
+                {/* 자유 모드: 이름과 이미지 */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wider">
+                      이름
+                    </label>
+                    <input
+                      type="text"
+                      value={freeProfileName}
+                      onChange={(e) => setFreeProfileName(e.target.value)}
+                      required
+                      className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200"
+                      placeholder="캐릭터 이름"
+                    />
+                  </div>
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wider">
+                      프로필 이미지
+                    </label>
+                    <div className="flex items-center gap-3">
+                      {freeProfileImage && (
+                        <img
+                          src={freeProfileImage}
+                          alt="프로필 미리보기"
+                          className="w-12 h-12 rounded-lg object-cover border border-gray-200"
+                        />
+                      )}
+                      <input
+                        ref={freeFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFreeImageSelect}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => freeFileInputRef.current?.click()}
+                        className="flex-1 py-3 px-4 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-600 hover:bg-gray-100 transition-all duration-200 text-left"
+                      >
+                        {freeProfileImage ? '이미지 변경' : '이미지 선택'}
+                      </button>
+                      {freeProfileImage && (
+                        <button
+                          type="button"
+                          onClick={() => setFreeProfileImage('')}
+                          className="p-3 rounded-lg border border-gray-200 hover:bg-gray-100 transition-all duration-200"
+                        >
+                          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
 
-            {/* 출력 언어 설정 */}
-            <div className="pt-4 border-t border-gray-100">
-              <label className="block text-xs font-semibold text-gray-900 mb-3 uppercase tracking-wider">
-                Language Settings
-              </label>
-              <div className="flex gap-3 mb-4">
-                <button
-                  type="button"
-                  onClick={() => setOutputLanguage('korean')}
-                  className={`flex-1 py-2.5 px-4 rounded-lg border text-sm font-medium transition-all duration-200 ${
-                    outputLanguage === 'korean'
-                      ? 'bg-black text-white border-black shadow-md'
-                      : 'border-gray-200 hover:bg-gray-50 text-gray-700'
-                  }`}
-                >
-                  한국어
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setOutputLanguage('foreign')}
-                  className={`flex-1 py-2.5 px-4 rounded-lg border text-sm font-medium transition-all duration-200 ${
-                    outputLanguage === 'foreign'
-                      ? 'bg-black text-white border-black shadow-md'
-                      : 'border-gray-200 hover:bg-gray-50 text-gray-700'
-                  }`}
-                >
-                  외국어 + 번역
-                </button>
-              </div>
-
-              {outputLanguage === 'foreign' && (
-                <div className="animate-fadeIn">
+                <div>
                   <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wider">
-                    사용 언어
+                    캐릭터 설명 (자유 형식)
                   </label>
-                  <input
-                    type="text"
-                    value={foreignLanguage}
-                    onChange={(e) => setForeignLanguage(e.target.value)}
-                    placeholder="예: 일본어, 영어, 중국어"
-                    className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200"
+                  <textarea
+                    value={freeProfile}
+                    onChange={(e) => setFreeProfile(e.target.value)}
+                    required
+                    rows={10}
+                    className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200 resize-none leading-relaxed"
+                    placeholder="캐릭터에 대해 자유롭게 설명해주세요. 프롬프트 형식으로 작성해도 좋습니다."
                   />
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           <div className="px-6 py-5 border-t border-gray-100 bg-gray-50/50 flex justify-end gap-3 rounded-b-xl">

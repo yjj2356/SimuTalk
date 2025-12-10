@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { ProfileInputMode } from '@/types';
 import { useUserStore } from '@/stores';
 
@@ -8,6 +8,7 @@ interface UserProfileFormProps {
 
 export function UserProfileForm({ onClose }: UserProfileFormProps) {
   const { userProfile, setInputMode, updateFieldProfile, setFreeProfile } = useUserStore();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [inputMode, setLocalInputMode] = useState<ProfileInputMode>(
     userProfile.inputMode
@@ -35,6 +36,24 @@ export function UserProfileForm({ onClose }: UserProfileFormProps) {
   const [freeProfileText, setFreeProfileText] = useState(
     userProfile.freeProfile || ''
   );
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // 파일 크기 체크 (5MB 제한)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('이미지 크기는 5MB 이하여야 합니다.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setProfileImage(base64);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,15 +143,42 @@ export function UserProfileForm({ onClose }: UserProfileFormProps) {
                   </div>
                   <div className="col-span-2 sm:col-span-1">
                     <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wider">
-                      프로필 이미지 URL
+                      프로필 이미지
                     </label>
-                    <input
-                      type="url"
-                      value={profileImage}
-                      onChange={(e) => setProfileImage(e.target.value)}
-                      className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200"
-                      placeholder="https://..."
-                    />
+                    <div className="flex items-center gap-3">
+                      {profileImage && (
+                        <img
+                          src={profileImage}
+                          alt="프로필 미리보기"
+                          className="w-12 h-12 rounded-lg object-cover border border-gray-200"
+                        />
+                      )}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageSelect}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex-1 py-3 px-4 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-600 hover:bg-gray-100 transition-all duration-200 text-left"
+                      >
+                        {profileImage ? '이미지 변경' : '이미지 선택'}
+                      </button>
+                      {profileImage && (
+                        <button
+                          type="button"
+                          onClick={() => setProfileImage('')}
+                          className="p-3 rounded-lg border border-gray-200 hover:bg-gray-100 transition-all duration-200"
+                        >
+                          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 

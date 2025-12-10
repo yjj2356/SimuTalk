@@ -4,14 +4,31 @@ import { ChatWindow, AutopilotControls } from '@/components/chat';
 import { CharacterForm, UserProfileForm } from '@/components/profile';
 import { SettingsPanel } from '@/components/settings';
 import { useChatStore } from '@/stores';
+import { Character } from '@/types';
 
 export function MainLayout() {
   const [showCharacterForm, setShowCharacterForm] = useState(false);
+  const [editingCharacter, setEditingCharacter] = useState<Character | undefined>(undefined);
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const { currentChatId, getChat, setChatMode } = useChatStore();
 
   const currentChat = currentChatId ? getChat(currentChatId) : undefined;
+
+  const handleAddCharacter = () => {
+    setEditingCharacter(undefined);
+    setShowCharacterForm(true);
+  };
+
+  const handleEditCharacter = (character: Character) => {
+    setEditingCharacter(character);
+    setShowCharacterForm(true);
+  };
+
+  const handleCloseCharacterForm = () => {
+    setShowCharacterForm(false);
+    setEditingCharacter(undefined);
+  };
 
   return (
     <div className="flex h-screen bg-white text-gray-900 font-sans">
@@ -19,7 +36,10 @@ export function MainLayout() {
       <div className="w-80 flex flex-col border-r border-gray-200 bg-[#F5F5F7]">
         {/* 연락처 목록 */}
         <div className="flex-1 overflow-hidden">
-          <ContactList onAddCharacter={() => setShowCharacterForm(true)} />
+          <ContactList 
+            onAddCharacter={handleAddCharacter}
+            onEditCharacter={handleEditCharacter}
+          />
         </div>
 
         {/* 하단 메뉴 */}
@@ -51,11 +71,18 @@ export function MainLayout() {
         {/* Background Pattern */}
         <div className="absolute inset-0 opacity-[0.4] bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:20px_20px]"></div>
 
-        {/* Control Panel (Left Side) */}
+        {/* Control Panel (Left Side) - 좌측 하단 고정 */}
         {currentChat && (
-          <div className="flex flex-col gap-6 z-10 w-80 shrink-0">
+          <div className="absolute bottom-8 left-8 flex flex-col gap-3 z-20 w-96">
+            {/* Autopilot Controls - 스위치 위에 표시 */}
+            {currentChat.mode === 'autopilot' && (
+              <div className="bg-white/90 backdrop-blur-md rounded-2xl shadow-lg border border-gray-200/50 overflow-hidden">
+                <AutopilotControls chatId={currentChat.id} />
+              </div>
+            )}
+            
             {/* Mode Toggles */}
-            <div className="bg-white/80 backdrop-blur-md p-1.5 rounded-full flex items-center shadow-sm border border-gray-200/50 self-start">
+            <div className="bg-white/90 backdrop-blur-md p-1.5 rounded-full flex items-center shadow-lg border border-gray-200/50 self-start">
               <button
                 onClick={() => setChatMode(currentChat.id, 'immersion')}
                 className={`px-5 py-2 text-xs font-semibold rounded-full transition-all duration-200 ${
@@ -64,7 +91,7 @@ export function MainLayout() {
                     : 'text-gray-500 hover:text-gray-900'
                 }`}
               >
-                Immersion
+                직접
               </button>
               <button
                 onClick={() => setChatMode(currentChat.id, 'autopilot')}
@@ -74,16 +101,9 @@ export function MainLayout() {
                     : 'text-gray-500 hover:text-gray-900'
                 }`}
               >
-                Autopilot
+                자동진행
               </button>
             </div>
-
-            {/* Autopilot Controls */}
-            {currentChat.mode === 'autopilot' && (
-              <div className="bg-white/80 backdrop-blur-md rounded-2xl shadow-sm border border-gray-200/50 overflow-hidden">
-                <AutopilotControls chatId={currentChat.id} />
-              </div>
-            )}
           </div>
         )}
 
@@ -92,8 +112,12 @@ export function MainLayout() {
           {/* Screen Content */}
           <div className="absolute inset-0 bg-white rounded-[40px] overflow-hidden flex flex-col">
             
-            {/* Status Bar & Notch */}
-            <div className="h-[44px] bg-white w-full flex items-center justify-between px-6 text-xs font-medium select-none z-50 relative shrink-0">
+            {/* Status Bar & Notch - 테마별 배경색 변경 */}
+            <div className={`h-[44px] w-full flex items-center justify-between px-6 text-xs font-medium select-none z-50 relative shrink-0 ${
+              currentChat?.theme === 'kakao' ? 'bg-kakao-bg' : 
+              currentChat?.theme === 'line' ? 'bg-line-bg' :
+              'bg-white'
+            }`}>
                 <span className="w-10 text-center">9:41</span>
                 <div className="absolute left-1/2 top-0 -translate-x-1/2 w-[120px] h-[30px] bg-black rounded-b-[18px]"></div>
                 <div className="flex gap-1.5 w-10 justify-end">
@@ -107,8 +131,18 @@ export function MainLayout() {
                 <ChatWindow />
             </div>
 
-            {/* Home Indicator */}
-            <div className="h-[20px] w-full bg-white flex items-center justify-center shrink-0 z-50">
+            {/* Home Indicator - 모드와 테마에 따라 배경색 변경 */}
+            <div className={`h-[20px] w-full flex items-center justify-center shrink-0 z-50 ${
+              currentChat?.mode === 'immersion'
+                ? 'bg-white' // 직접 모드: 입력창 배경색 (흰색)
+                : currentChat?.theme === 'kakao'
+                  ? 'bg-kakao-bg' // 자동진행 + 카카오: 채팅방 배경색
+                  : currentChat?.theme === 'line'
+                    ? 'bg-line-bg'
+                    : currentChat?.theme === 'imessage'
+                      ? 'bg-imessage-bg'
+                      : 'bg-white'
+            }`}>
                 <div className="w-[120px] h-[4px] bg-gray-300 rounded-full"></div>
             </div>
 
@@ -119,8 +153,9 @@ export function MainLayout() {
       {/* 모달들 */}
       {showCharacterForm && (
         <CharacterForm
-          onSave={() => setShowCharacterForm(false)}
-          onCancel={() => setShowCharacterForm(false)}
+          character={editingCharacter}
+          onSave={handleCloseCharacterForm}
+          onCancel={handleCloseCharacterForm}
         />
       )}
 

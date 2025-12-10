@@ -18,7 +18,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     setDefaultAIProvider,
     setGeminiModel,
     setOpenAIModel,
-    setTranslateUserMessages,
+    setOutputLanguage,
   } = useSettingsStore();
 
   const [geminiKey, setGeminiKey] = useState(settings.geminiApiKey || '');
@@ -87,7 +87,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                       : 'border-gray-200 hover:bg-gray-50 text-gray-700'
                   }`}
                 >
-                  <span className="font-medium">{themeConfigs[theme].name}</span>
+                  <span className="font-medium">{themeConfigs[theme].displayName}</span>
                 </button>
               ))}
             </div>
@@ -192,23 +192,55 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             </div>
           </section>
 
-          {/* 기타 설정 */}
+          {/* 언어 설정 */}
           <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wider">Other Settings</h3>
-            <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 bg-gray-50/50">
-              <span className="text-sm font-medium text-gray-700">Translate User Messages</span>
-              <button
-                onClick={() => setTranslateUserMessages(!settings.translateUserMessages)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                  settings.translateUserMessages ? 'bg-black' : 'bg-gray-200'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    settings.translateUserMessages ? 'translate-x-6' : 'translate-x-1'
+            <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wider">Language Settings</h3>
+            <div className="space-y-3">
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                출력 언어
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setOutputLanguage('korean')}
+                  className={`py-2.5 px-4 rounded-xl border text-sm font-medium transition-all duration-200 ${
+                    settings.outputLanguage === 'korean'
+                      ? 'bg-black text-white border-black shadow-md'
+                      : 'border-gray-200 hover:bg-gray-50 text-gray-700'
                   }`}
-                />
-              </button>
+                >
+                  한국어
+                </button>
+                <button
+                  onClick={() => setOutputLanguage('english')}
+                  className={`py-2.5 px-4 rounded-xl border text-sm font-medium transition-all duration-200 ${
+                    settings.outputLanguage === 'english'
+                      ? 'bg-black text-white border-black shadow-md'
+                      : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  English
+                </button>
+                <button
+                  onClick={() => setOutputLanguage('japanese')}
+                  className={`py-2.5 px-4 rounded-xl border text-sm font-medium transition-all duration-200 ${
+                    settings.outputLanguage === 'japanese'
+                      ? 'bg-black text-white border-black shadow-md'
+                      : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  日本語
+                </button>
+                <button
+                  onClick={() => setOutputLanguage('chinese')}
+                  className={`py-2.5 px-4 rounded-xl border text-sm font-medium transition-all duration-200 ${
+                    settings.outputLanguage === 'chinese'
+                      ? 'bg-black text-white border-black shadow-md'
+                      : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  中文
+                </button>
+              </div>
             </div>
           </section>
 

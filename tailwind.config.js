@@ -7,18 +7,21 @@ export default {
   theme: {
     extend: {
       colors: {
-        // KakaoTalk theme
+        // KakaoTalk theme (정밀 조정)
         kakao: {
           yellow: '#FEE500',
           brown: '#3C1E1E',
-          bg: '#B2C7D9',
-          bubble: '#FFEB33',
+          bg: '#BACEE0',
+          bubble: '#FEE500',
+          white: '#FFFFFF',
         },
-        // LINE theme
+        // LINE theme (라인 공식 스타일)
         line: {
-          green: '#06C755',
-          bg: '#7494A8',
-          bubble: '#06C755',
+          green: '#78e278',      // 내 말풍선 (연한 그린)
+          bg: '#8dabd8',         // 배경 (블루그레이)
+          header: '#8dabd8',     // 헤더 배경
+          bubble: '#78e278',     // 내 말풍선
+          white: '#FFFFFF',      // 상대방 말풍선
         },
         // iMessage theme
         imessage: {

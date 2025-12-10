@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { AppSettings, ThemeType, AIProvider } from '@/types';
+import { AppSettings, ThemeType, AIProvider, OutputLanguage } from '@/types';
 
 interface SettingsState {
   settings: AppSettings;
@@ -10,7 +10,7 @@ interface SettingsState {
   setDefaultAIProvider: (provider: AIProvider) => void;
   setGeminiModel: (model: string) => void;
   setOpenAIModel: (model: string) => void;
-  setTranslateUserMessages: (value: boolean) => void;
+  setOutputLanguage: (language: OutputLanguage) => void;
 }
 
 const defaultSettings: AppSettings = {
@@ -18,7 +18,7 @@ const defaultSettings: AppSettings = {
   defaultAIProvider: 'gemini',
   geminiModel: 'gemini-3-pro-preview',
   openaiModel: 'gpt-5.1-chat-latest',
-  translateUserMessages: false,
+  outputLanguage: 'korean',
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -49,9 +49,9 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           settings: { ...state.settings, openaiModel },
         })),
-      setTranslateUserMessages: (translateUserMessages) =>
+      setOutputLanguage: (outputLanguage) =>
         set((state) => ({
-          settings: { ...state.settings, translateUserMessages },
+          settings: { ...state.settings, outputLanguage },
         })),
     }),
     {

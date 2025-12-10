@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Chat, Message, ChatMode, MessageBranch } from '@/types';
+import { Chat, Message, ChatMode, MessageBranch, ThemeType } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
 interface ChatState {
   chats: Chat[];
   currentChatId: string | null;
-  createChat: (characterId: string) => string;
+  createChat: (characterId: string, theme: ThemeType) => string;
   deleteChat: (chatId: string) => void;
   setCurrentChat: (chatId: string | null) => void;
   addMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp' | 'currentBranchIndex'>) => string;
@@ -18,6 +18,7 @@ interface ChatState {
   setAutopilotRunning: (chatId: string, running: boolean) => void;
   getChat: (chatId: string) => Chat | undefined;
   getChatByCharacter: (characterId: string) => Chat | undefined;
+  getChatsByCharacter: (characterId: string) => Chat[];
 }
 
 export const useChatStore = create<ChatState>()(
@@ -25,21 +26,13 @@ export const useChatStore = create<ChatState>()(
     (set, get) => ({
       chats: [],
       currentChatId: null,
-      createChat: (characterId) => {
-        // 이미 해당 캐릭터와의 채팅이 있으면 그 채팅 반환
-        const existingChat = get().chats.find(
-          (chat) => chat.characterId === characterId
-        );
-        if (existingChat) {
-          set({ currentChatId: existingChat.id });
-          return existingChat.id;
-        }
-
+      createChat: (characterId, theme) => {
         const id = uuidv4();
         const now = Date.now();
         const newChat: Chat = {
           id,
           characterId,
+          theme,
           messages: [],
           mode: 'immersion',
           createdAt: now,
@@ -162,9 +155,23 @@ export const useChatStore = create<ChatState>()(
       getChat: (chatId) => get().chats.find((chat) => chat.id === chatId),
       getChatByCharacter: (characterId) =>
         get().chats.find((chat) => chat.characterId === characterId),
+      getChatsByCharacter: (characterId) =>
+        get().chats.filter((chat) => chat.characterId === characterId),
     }),
     {
       name: 'simutalk-chats',
+      // 기존 채팅방에 theme가 없을 경우 기본값 적용
+      migrate: (persistedState: unknown, _version: number) => {
+        const state = persistedState as ChatState;
+        if (state.chats) {
+          state.chats = state.chats.map((chat) => ({
+            ...chat,
+            theme: chat.theme || 'kakao', // 기본 테마로 카카오톡 설정
+          }));
+        }
+        return state;
+      },
+      version: 1,
     }
   )
 );
