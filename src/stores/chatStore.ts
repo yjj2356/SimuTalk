@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Chat, Message, ChatMode, MessageBranch, ThemeType } from '@/types';
+import { Chat, Message, ChatMode, MessageBranch, ThemeType, TimeSettings } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
 interface ChatState {
@@ -16,6 +16,7 @@ interface ChatState {
   setChatMode: (chatId: string, mode: ChatMode) => void;
   setAutopilotScenario: (chatId: string, scenario: string) => void;
   setAutopilotRunning: (chatId: string, running: boolean) => void;
+  setChatTimeSettings: (chatId: string, timeSettings: TimeSettings | undefined) => void;
   getChat: (chatId: string) => Chat | undefined;
   getChatByCharacter: (characterId: string) => Chat | undefined;
   getChatsByCharacter: (characterId: string) => Chat[];
@@ -149,6 +150,14 @@ export const useChatStore = create<ChatState>()(
           chats: state.chats.map((chat) =>
             chat.id === chatId
               ? { ...chat, isAutopilotRunning: running, updatedAt: Date.now() }
+              : chat
+          ),
+        })),
+      setChatTimeSettings: (chatId, timeSettings) =>
+        set((state) => ({
+          chats: state.chats.map((chat) =>
+            chat.id === chatId
+              ? { ...chat, timeSettings, updatedAt: Date.now() }
               : chat
           ),
         })),

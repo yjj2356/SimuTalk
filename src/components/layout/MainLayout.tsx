@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ContactList } from '@/components/contacts';
-import { ChatWindow, AutopilotControls } from '@/components/chat';
+import { ChatWindow, AutopilotControls, TimeControls } from '@/components/chat';
 import { CharacterForm, UserProfileForm } from '@/components/profile';
 import { SettingsPanel } from '@/components/settings';
 import { useChatStore } from '@/stores';
@@ -11,9 +11,35 @@ export function MainLayout() {
   const [editingCharacter, setEditingCharacter] = useState<Character | undefined>(undefined);
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [currentTime, setCurrentTime] = useState('');
   const { currentChatId, getChat, setChatMode } = useChatStore();
 
   const currentChat = currentChatId ? getChat(currentChatId) : undefined;
+
+  // 채팅방별 시간 계산 함수
+  const getCurrentChatTime = (): Date => {
+    const timeSettings = currentChat?.timeSettings;
+    if (!timeSettings || timeSettings.mode === 'realtime') {
+      return new Date();
+    }
+    const elapsed = Date.now() - (timeSettings.startedAt || Date.now());
+    return new Date((timeSettings.customBaseTime || Date.now()) + elapsed);
+  };
+
+  // 시간 업데이트 (매 초마다)
+  useEffect(() => {
+    const updateTime = () => {
+      const time = getCurrentChatTime();
+      setCurrentTime(time.toLocaleTimeString('ko-KR', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: false,
+      }));
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, [currentChat?.timeSettings]);
 
   const handleAddCharacter = () => {
     setEditingCharacter(undefined);
@@ -107,6 +133,13 @@ export function MainLayout() {
           </div>
         )}
 
+        {/* Time Controls (Right Side) - 우측 하단 고정 */}
+        {currentChat && (
+          <div className="absolute bottom-8 right-8 z-20 w-72">
+            <TimeControls chatId={currentChat.id} />
+          </div>
+        )}
+
         <div className="relative w-[375px] h-[812px] bg-black rounded-[50px] shadow-[0_0_0_12px_#1a1a1a,0_20px_50px_-10px_rgba(0,0,0,0.5)] overflow-hidden ring-1 ring-white/20 z-10 shrink-0">
           
           {/* Screen Content */}
@@ -118,7 +151,7 @@ export function MainLayout() {
               currentChat?.theme === 'line' ? 'bg-line-bg' :
               'bg-white'
             }`}>
-                <span className="w-10 text-center">9:41</span>
+                <span className="w-10 text-center">{currentTime || '9:41'}</span>
                 <div className="absolute left-1/2 top-0 -translate-x-1/2 w-[120px] h-[30px] bg-black rounded-b-[18px]"></div>
                 <div className="flex gap-1.5 w-10 justify-end">
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>

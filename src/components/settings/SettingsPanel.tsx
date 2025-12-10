@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSettingsStore } from '@/stores';
 import { ThemeType } from '@/types';
 import { themeConfigs } from '@/utils/theme';
@@ -18,15 +18,55 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     setResponseModel,
     setTranslationModel,
     setOutputLanguage,
+    setTimeMode,
+    setCustomTime,
+    getCurrentTime,
   } = useSettingsStore();
 
   const [geminiKey, setGeminiKey] = useState(settings.geminiApiKey || '');
   const [openaiKey, setOpenaiKey] = useState(settings.openaiApiKey || '');
+  const [customDateInput, setCustomDateInput] = useState('');
+  const [customTimeInput, setCustomTimeInput] = useState('');
+  const [currentDisplayTime, setCurrentDisplayTime] = useState('');
+  
+  // 현재 표시 시간 업데이트
+  useEffect(() => {
+    const updateDisplay = () => {
+      const time = getCurrentTime();
+      setCurrentDisplayTime(time.toLocaleString('ko-KR', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }));
+    };
+    updateDisplay();
+    const interval = setInterval(updateDisplay, 1000);
+    return () => clearInterval(interval);
+  }, [getCurrentTime, settings.timeSettings]);
+  
+  // 초기 입력값 설정
+  useEffect(() => {
+    const now = new Date();
+    setCustomDateInput(now.toISOString().slice(0, 10));
+    setCustomTimeInput(now.toTimeString().slice(0, 5));
+  }, []);
 
   const handleSaveApiKeys = () => {
     setGeminiApiKey(geminiKey);
     setOpenAIApiKey(openaiKey);
     alert('API 키가 저장되었습니다.');
+  };
+  
+  const handleSetCustomTime = () => {
+    if (customDateInput && customTimeInput) {
+      const dateTime = new Date(`${customDateInput}T${customTimeInput}:00`);
+      setCustomTime(dateTime);
+    }
   };
 
   const handleExport = () => {
@@ -235,6 +275,71 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   中文
                 </button>
               </div>
+            </div>
+          </section>
+
+          {/* 시간 설정 */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wider">Time Settings</h3>
+            <div className="space-y-4">
+              {/* 현재 표시 시간 */}
+              <div className="bg-gray-50 rounded-xl p-4 text-center">
+                <div className="text-xs font-medium text-gray-500 mb-1">현재 앱 시간</div>
+                <div className="text-lg font-semibold text-gray-900">{currentDisplayTime}</div>
+              </div>
+              
+              {/* 모드 선택 */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setTimeMode('realtime')}
+                  className={`py-2.5 px-4 rounded-xl border text-sm font-medium transition-all duration-200 ${
+                    (!settings.timeSettings || settings.timeSettings.mode === 'realtime')
+                      ? 'bg-black text-white border-black shadow-md'
+                      : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  현재 시간
+                </button>
+                <button
+                  onClick={() => setTimeMode('custom')}
+                  className={`py-2.5 px-4 rounded-xl border text-sm font-medium transition-all duration-200 ${
+                    settings.timeSettings?.mode === 'custom'
+                      ? 'bg-black text-white border-black shadow-md'
+                      : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  사용자 설정
+                </button>
+              </div>
+              
+              {/* 커스텀 시간 입력 */}
+              {settings.timeSettings?.mode === 'custom' && (
+                <div className="space-y-3 pt-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={customDateInput}
+                      onChange={(e) => setCustomDateInput(e.target.value)}
+                      className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200"
+                    />
+                    <input
+                      type="time"
+                      value={customTimeInput}
+                      onChange={(e) => setCustomTimeInput(e.target.value)}
+                      className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200"
+                    />
+                  </div>
+                  <button
+                    onClick={handleSetCustomTime}
+                    className="w-full py-2.5 bg-black text-white rounded-xl hover:bg-gray-800 text-sm font-medium transition-all duration-200 shadow-sm"
+                  >
+                    시간 설정 적용
+                  </button>
+                  <p className="text-xs text-gray-500 text-center">
+                    설정된 시간부터 실시간으로 흐릅니다.
+                  </p>
+                </div>
+              )}
             </div>
           </section>
 

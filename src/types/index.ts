@@ -13,6 +13,16 @@ export type OutputLanguage = 'korean' | 'english' | 'japanese' | 'chinese';
 // AI 제공자
 export type AIProvider = 'gemini' | 'openai';
 
+// 시간 모드 설정
+export type TimeMode = 'realtime' | 'custom';
+
+// 시간 설정
+export interface TimeSettings {
+  mode: TimeMode;
+  customBaseTime?: number; // 설정된 기준 시간 (timestamp)
+  startedAt?: number; // 커스텀 시간 모드 시작 시점 (timestamp)
+}
+
 // 메시지 타입
 export interface Message {
   id: string;
@@ -23,6 +33,8 @@ export interface Message {
   translatedContent?: string; // 번역된 내용
   branches?: MessageBranch[]; // 분기 메시지들
   currentBranchIndex: number; // 현재 선택된 분기 인덱스 (0 = 원본)
+  imageData?: string; // Base64 인코딩된 이미지 데이터
+  imageMimeType?: string; // 이미지 MIME 타입 (image/jpeg, image/png, etc.)
 }
 
 // 캐릭터 프로필 (필드 모드)
@@ -58,7 +70,18 @@ export interface UserFieldProfile {
   additionalInfo?: string;
 }
 
-// 유저 프로필
+// 유저 프로필 슬롯
+export interface UserProfileSlot {
+  id: string;
+  inputMode: ProfileInputMode;
+  fieldProfile?: UserFieldProfile;
+  freeProfile?: string;
+  freeProfileName?: string; // 자유 모드에서의 이름
+  createdAt: number;
+  updatedAt: number;
+}
+
+// 유저 프로필 (레거시 호환)
 export interface UserProfile {
   inputMode: ProfileInputMode;
   fieldProfile?: UserFieldProfile;
@@ -69,11 +92,13 @@ export interface UserProfile {
 export interface Chat {
   id: string;
   characterId: string;
+  userProfileId?: string; // 유저 프로필 슬롯 ID
   theme: ThemeType; // 채팅방 고정 테마
   messages: Message[];
   mode: ChatMode;
   autopilotScenario?: string; // Autopilot 모드 시나리오
   isAutopilotRunning?: boolean;
+  timeSettings?: TimeSettings; // 채팅방별 시간 설정
   createdAt: number;
   updatedAt: number;
 }
@@ -94,6 +119,7 @@ export interface AppSettings {
   responseModel: string; // 답변 모델 (gemini-xxx 또는 gpt-xxx)
   translationModel: string; // 번역 모델 (gemini-xxx 또는 gpt-xxx)
   outputLanguage: OutputLanguage; // 출력 언어 설정
+  timeSettings: TimeSettings; // 시간 설정
   // 레거시 호환 (deprecated)
   defaultAIProvider?: AIProvider;
   geminiModel?: string;

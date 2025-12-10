@@ -15,11 +15,15 @@ interface ChatBubbleProps {
   onGenerateBranch?: () => void;
   isLastCharacterMessage?: boolean;
   onTranslate?: () => void;
+  onRetranslate?: () => void;
   isTranslating?: boolean;
   isFirstInGroup?: boolean;
   showTime?: boolean;
   theme?: ThemeType;
   onEdit?: (newContent: string) => void;
+  formatTimeFunc?: (ts: number) => string;
+  imageData?: string; // Base64 인코딩된 이미지 데이터
+  imageMimeType?: string; // 이미지 MIME 타입
 }
 
 export function ChatBubble({
@@ -33,18 +37,22 @@ export function ChatBubble({
   onBranchChange,
   onGenerateBranch,
   onTranslate,
+  onRetranslate,
   isTranslating,
   isFirstInGroup = true,
   showTime = true,
   theme,
   onEdit,
+  formatTimeFunc,
+  imageData,
+  imageMimeType,
 }: ChatBubbleProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(content);
+  const [showTranslation, setShowTranslation] = useState(true); // 번역 보이기/숨기기
   const bubbleRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
   // 채팅 테마 사용 (전달된 theme 또는 현재 채팅방의 theme)
   const { chats, currentChatId } = useChatStore();
   const currentChat = chats.find(c => c.id === currentChatId);
@@ -66,8 +74,17 @@ export function ChatBubble({
   const totalVersions = 1 + (branches?.length || 0);
   const hasBranches = totalVersions > 1;
 
-  // 줄바꿈으로 메시지 분리 (각각 다른 말풍선으로 표시)
-  const messageLines = displayContent.split('\n').filter(line => line.trim() !== '');
+  // [이름]: 형식 제거 함수
+  const cleanSpeakerPrefix = (text: string): string => {
+    // [이름]: 또는 이름: 형식 제거
+    return text.replace(/^\[[^\]]+\]:\s*/, '').replace(/^[^:\n]+:\s*/, '');
+  };
+
+  // 줄바꿈으로 메시지 분리 (각각 다른 말풍선으로 표시) + [이름]: 제거
+  const messageLines = displayContent
+    .split('\n')
+    .map(line => cleanSpeakerPrefix(line.trim()))
+    .filter(line => line !== '');
 
   // 편집 모드 진입 시 textarea에 포커스
   useEffect(() => {
@@ -78,12 +95,25 @@ export function ChatBubble({
   }, [isEditing]);
 
   const formatTime = (ts: number) => {
+    // 외부에서 전달된 formatTimeFunc이 있으면 사용
+    if (formatTimeFunc) {
+      return formatTimeFunc(ts);
+    }
     const date = new Date(ts);
     return date.toLocaleTimeString('ko-KR', {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
     });
+  };
+
+  // 번역 토글 핸들러
+  const handleToggleTranslation = () => {
+    if (displayTranslation) {
+      setShowTranslation(!showTranslation);
+    } else if (onTranslate) {
+      onTranslate();
+    }
   };
 
   const handlePrevBranch = () => {
@@ -231,20 +261,35 @@ export function ChatBubble({
     </div>
   );
 
-  // 호버 시 표시되는 번역 버튼
+  // 호버 시 표시되는 번역 버튼 (번역이 있으면 토글, 없으면 번역 요청) + 번역 리롤 버튼
   const TranslateButton = () => (
     <div 
-      className={`absolute top-1/2 -translate-y-1/2 ${isUser ? '-left-8' : '-right-8'} transition-opacity duration-150 ${isHovered && onTranslate && !displayTranslation ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+      className={`absolute top-1/2 -translate-y-1/2 ${isUser ? '-left-8' : '-right-8'} transition-opacity duration-150 flex items-center gap-1 ${isHovered && (onTranslate || displayTranslation) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
       style={{ zIndex: 20 }}
     >
       <button
-        onClick={onTranslate}
+        onClick={handleToggleTranslation}
         disabled={isTranslating}
-        className="p-1.5 rounded-full bg-white hover:bg-gray-100 text-gray-600 transition-colors shadow-sm border border-gray-200"
-        title="번역"
+        className={`p-1.5 rounded-full hover:bg-gray-100 transition-colors shadow-sm border border-gray-200 ${
+          displayTranslation && showTranslation 
+            ? 'bg-blue-100 text-blue-600' 
+            : 'bg-white text-gray-600'
+        }`}
+        title={displayTranslation ? (showTranslation ? '번역 숨기기' : '번역 보기') : '번역'}
       >
         <TranslateIcon />
       </button>
+      {/* 번역 리롤 버튼 - 번역이 있고 보이는 상태일 때만 표시 */}
+      {displayTranslation && showTranslation && onRetranslate && (
+        <button
+          onClick={onRetranslate}
+          disabled={isTranslating}
+          className="p-1.5 rounded-full bg-white hover:bg-gray-100 text-gray-600 transition-colors shadow-sm border border-gray-200"
+          title="번역 다시하기"
+        >
+          <RerollIcon />
+        </button>
+      )}
     </div>
   );
 
@@ -286,6 +331,36 @@ export function ChatBubble({
     </div>
   );
 
+  // 이미지 렌더링 컴포넌트
+  const ImageBubble = ({ borderRadius }: { borderRadius: string }) => (
+    imageData && imageMimeType ? (
+      <div 
+        className="overflow-hidden"
+        style={{ 
+          borderRadius,
+          maxWidth: '220px',
+        }}
+      >
+        <img 
+          src={`data:${imageMimeType};base64,${imageData}`}
+          alt="첨부 이미지"
+          className="max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
+          style={{ 
+            maxHeight: '200px',
+            objectFit: 'contain',
+          }}
+          onClick={() => {
+            // 클릭 시 새 창에서 이미지 열기
+            const win = window.open();
+            if (win) {
+              win.document.write(`<img src="data:${imageMimeType};base64,${imageData}" style="max-width: 100%; height: auto;" />`);
+            }
+          }}
+        />
+      </div>
+    ) : null
+  );
+
   // iMessage 테마 렌더링
   if (effectiveTheme === 'imessage') {
     const bubbleBgColor = isUser ? '#007AFF' : '#E9E9EB';
@@ -306,6 +381,9 @@ export function ChatBubble({
                 renderEditMode('18px', '10px 14px')
               ) : (
                 <>
+                  {/* 이미지가 있으면 먼저 표시 */}
+                  <ImageBubble borderRadius={isUser ? '18px 18px 4px 18px' : '18px 18px 18px 4px'} />
+                  
                   {messageLines.map((line, idx) => {
                     const isFirst = idx === 0;
                     const isLast = idx === messageLines.length - 1;
@@ -343,7 +421,7 @@ export function ChatBubble({
                     );
                   })}
                   
-                  {displayTranslation && (
+                  {displayTranslation && showTranslation && (
                     <div
                       className="text-[11px] leading-[1.35] break-words inline-block opacity-70"
                       style={{
@@ -433,6 +511,9 @@ export function ChatBubble({
                 renderEditMode(themeConfig.chatBubble.borderRadius, '8px 12px')
               ) : (
                 <>
+                  {/* 이미지가 있으면 먼저 표시 */}
+                  <ImageBubble borderRadius={themeConfig.chatBubble.borderRadius} />
+                  
                   {messageLines.map((line, idx) => {
                     const isFirst = idx === 0;
                     const showTail = isFirst && isFirstInGroup && themeConfig.chatBubble.tailUser && themeConfig.chatBubble.tailPartner;
@@ -472,7 +553,7 @@ export function ChatBubble({
                     );
                   })}
                   
-                  {displayTranslation && (
+                  {displayTranslation && showTranslation && (
                     <div
                       className="text-[11px] leading-[1.35] break-words inline-block opacity-70"
                       style={{
@@ -551,6 +632,9 @@ export function ChatBubble({
               renderEditMode('0.75rem', '10px 16px')
             ) : (
               <>
+                {/* 이미지가 있으면 먼저 표시 */}
+                <ImageBubble borderRadius="0.75rem" />
+                
                 {messageLines.map((line, idx) => (
                   <div 
                     key={idx}
@@ -561,7 +645,7 @@ export function ChatBubble({
                   </div>
                 ))}
                 
-                {displayTranslation && (
+                {displayTranslation && showTranslation && (
                   <div className="text-xs px-4 py-2 rounded-xl bg-gray-100 opacity-80 inline-block break-words" style={{ maxWidth: '100%' }}>
                     {displayTranslation}
                   </div>

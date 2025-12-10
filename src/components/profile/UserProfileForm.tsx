@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { ProfileInputMode } from '@/types';
+import { useState, useRef, useEffect } from 'react';
+import { ProfileInputMode, UserProfileSlot } from '@/types';
 import { useUserStore } from '@/stores';
 
 interface UserProfileFormProps {
@@ -7,41 +7,89 @@ interface UserProfileFormProps {
 }
 
 export function UserProfileForm({ onClose }: UserProfileFormProps) {
-  const { userProfile, setInputMode, updateFieldProfile, setFreeProfile } = useUserStore();
+  const { 
+    userProfiles, 
+    currentUserProfileId,
+    addUserProfile,
+    updateUserProfile,
+    deleteUserProfile,
+    setCurrentUserProfile,
+    getUserProfile,
+  } = useUserStore();
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // 현재 편집 중인 프로필 ID (null이면 새로 만들기)
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(
+    currentUserProfileId || (userProfiles.length > 0 ? userProfiles[0].id : null)
+  );
+  
+  // 편집 중인 프로필 데이터
+  const editingProfile = editingProfileId ? getUserProfile(editingProfileId) : null;
 
   const [inputMode, setLocalInputMode] = useState<ProfileInputMode>(
-    userProfile.inputMode
+    editingProfile?.inputMode || 'field'
   );
 
   // 필드 모드 상태
-  const [name, setName] = useState(userProfile.fieldProfile?.name || '');
+  const [name, setName] = useState(editingProfile?.fieldProfile?.name || '');
   const [profileImage, setProfileImage] = useState(
-    userProfile.fieldProfile?.profileImage || ''
+    editingProfile?.fieldProfile?.profileImage || ''
   );
   const [personality, setPersonality] = useState(
-    userProfile.fieldProfile?.personality || ''
+    editingProfile?.fieldProfile?.personality || ''
   );
   const [appearance, setAppearance] = useState(
-    userProfile.fieldProfile?.appearance || ''
+    editingProfile?.fieldProfile?.appearance || ''
   );
   const [settings, setSettings] = useState(
-    userProfile.fieldProfile?.settings || ''
+    editingProfile?.fieldProfile?.settings || ''
   );
   const [additionalInfo, setAdditionalInfo] = useState(
-    userProfile.fieldProfile?.additionalInfo || ''
+    editingProfile?.fieldProfile?.additionalInfo || ''
   );
 
   // 자유 모드 상태
   const [freeProfileText, setFreeProfileText] = useState(
-    userProfile.freeProfile || ''
+    editingProfile?.freeProfile || ''
   );
+  const [freeProfileName, setFreeProfileName] = useState(
+    editingProfile?.freeProfileName || ''
+  );
+
+  // 프로필 변경 시 폼 업데이트
+  useEffect(() => {
+    if (editingProfileId) {
+      const profile = getUserProfile(editingProfileId);
+      if (profile) {
+        setLocalInputMode(profile.inputMode);
+        setName(profile.fieldProfile?.name || '');
+        setProfileImage(profile.fieldProfile?.profileImage || '');
+        setPersonality(profile.fieldProfile?.personality || '');
+        setAppearance(profile.fieldProfile?.appearance || '');
+        setSettings(profile.fieldProfile?.settings || '');
+        setAdditionalInfo(profile.fieldProfile?.additionalInfo || '');
+        setFreeProfileText(profile.freeProfile || '');
+        setFreeProfileName(profile.freeProfileName || '');
+      }
+    } else {
+      // 새 프로필 - 초기화
+      setLocalInputMode('field');
+      setName('');
+      setProfileImage('');
+      setPersonality('');
+      setAppearance('');
+      setSettings('');
+      setAdditionalInfo('');
+      setFreeProfileText('');
+      setFreeProfileName('');
+    }
+  }, [editingProfileId, getUserProfile]);
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // 파일 크기 체크 (5MB 제한)
     if (file.size > 5 * 1024 * 1024) {
       alert('이미지 크기는 5MB 이하여야 합니다.');
       return;
@@ -58,22 +106,58 @@ export function UserProfileForm({ onClose }: UserProfileFormProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    setInputMode(inputMode);
-
-    if (inputMode === 'field') {
-      updateFieldProfile({
-        name,
+    const profileData: Partial<UserProfileSlot> = {
+      inputMode,
+      fieldProfile: inputMode === 'field' ? {
+        name: name || '나',
         profileImage: profileImage || undefined,
         personality,
         appearance,
         settings,
         additionalInfo: additionalInfo || undefined,
-      });
+      } : undefined,
+      freeProfile: inputMode === 'free' ? freeProfileText : undefined,
+      freeProfileName: inputMode === 'free' ? freeProfileName : undefined,
+    };
+
+    if (editingProfileId) {
+      // 기존 프로필 업데이트
+      updateUserProfile(editingProfileId, profileData);
     } else {
-      setFreeProfile(freeProfileText);
+      // 새 프로필 추가
+      const newId = addUserProfile(profileData as Omit<UserProfileSlot, 'id' | 'createdAt' | 'updatedAt'>);
+      setCurrentUserProfile(newId);
     }
 
     onClose();
+  };
+
+  const handleAddNew = () => {
+    setEditingProfileId(null);
+  };
+
+  const handleDeleteProfile = () => {
+    if (!editingProfileId) return;
+    if (userProfiles.length <= 1) {
+      alert('최소 하나의 프로필이 필요합니다.');
+      return;
+    }
+    if (confirm('이 프로필을 삭제하시겠습니까?')) {
+      deleteUserProfile(editingProfileId);
+      setEditingProfileId(userProfiles.filter(p => p.id !== editingProfileId)[0]?.id || null);
+    }
+  };
+
+  const handleSelectProfile = (id: string) => {
+    setEditingProfileId(id);
+    setCurrentUserProfile(id);
+  };
+
+  const getProfileDisplayName = (profile: UserProfileSlot) => {
+    if (profile.inputMode === 'field') {
+      return profile.fieldProfile?.name || '이름 없음';
+    }
+    return profile.freeProfileName || '자유 프로필';
   };
 
   return (
@@ -99,6 +183,43 @@ export function UserProfileForm({ onClose }: UserProfileFormProps) {
           </div>
 
           <div className="p-6 space-y-6">
+            {/* 프로필 슬롯 선택 */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wider">
+                프로필 선택
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {userProfiles.map((profile) => (
+                  <button
+                    key={profile.id}
+                    type="button"
+                    onClick={() => handleSelectProfile(profile.id)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                      editingProfileId === profile.id
+                        ? 'bg-black text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {getProfileDisplayName(profile)}
+                    {currentUserProfileId === profile.id && (
+                      <span className="ml-1 text-xs opacity-70">✓</span>
+                    )}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={handleAddNew}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    editingProfileId === null
+                      ? 'bg-black text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  + 새 프로필
+                </button>
+              </div>
+            </div>
+
             {/* 입력 모드 선택 */}
             <div className="bg-gray-100 p-1 rounded-lg flex">
               <button
@@ -235,36 +356,63 @@ export function UserProfileForm({ onClose }: UserProfileFormProps) {
                 </div>
               </div>
             ) : (
-              <div>
-                <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wider">
-                  프로필 설명 (자유 형식)
-                </label>
-                <textarea
-                  value={freeProfileText}
-                  onChange={(e) => setFreeProfileText(e.target.value)}
-                  required
-                  rows={12}
-                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200 resize-none leading-relaxed"
-                  placeholder="나에 대해 자유롭게 설명해주세요."
-                />
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wider">
+                    이름 (표시용)
+                  </label>
+                  <input
+                    type="text"
+                    value={freeProfileName}
+                    onChange={(e) => setFreeProfileName(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200"
+                    placeholder="프로필 이름"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wider">
+                    프로필 설명 (자유 형식)
+                  </label>
+                  <textarea
+                    value={freeProfileText}
+                    onChange={(e) => setFreeProfileText(e.target.value)}
+                    required
+                    rows={10}
+                    className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200 resize-none leading-relaxed"
+                    placeholder="나에 대해 자유롭게 설명해주세요."
+                  />
+                </div>
               </div>
             )}
           </div>
 
-          <div className="px-6 py-5 border-t border-gray-100 bg-gray-50/50 flex justify-end gap-3 rounded-b-xl">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-all duration-200"
-            >
-              취소
-            </button>
-            <button
-              type="submit"
-              className="px-6 py-2.5 rounded-lg text-sm font-medium bg-black text-white hover:bg-gray-800 shadow-lg shadow-black/10 transition-all duration-200 transform hover:-translate-y-0.5"
-            >
-              저장하기
-            </button>
+          <div className="px-6 py-5 border-t border-gray-100 bg-gray-50/50 flex justify-between rounded-b-xl">
+            <div>
+              {editingProfileId && userProfiles.length > 1 && (
+                <button
+                  type="button"
+                  onClick={handleDeleteProfile}
+                  className="px-4 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-all duration-200"
+                >
+                  삭제
+                </button>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-all duration-200"
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                className="px-6 py-2.5 rounded-lg text-sm font-medium bg-black text-white hover:bg-gray-800 shadow-lg shadow-black/10 transition-all duration-200 transform hover:-translate-y-0.5"
+              >
+                {editingProfileId ? '저장하기' : '추가하기'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

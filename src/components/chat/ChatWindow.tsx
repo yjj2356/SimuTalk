@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { ChatBubble } from './ChatBubble';
 import { ChatInput } from './ChatInput';
 import { useSettingsStore, useChatStore, useCharacterStore, useUserStore } from '@/stores';
@@ -20,11 +20,49 @@ export function ChatWindow() {
   const { settings } = useSettingsStore();
   const { chats, currentChatId, addMessage, updateMessage, addBranch, setBranchIndex } = useChatStore();
   const { getCharacter } = useCharacterStore();
-  const { userProfile } = useUserStore();
+  const { getCurrentUserProfile } = useUserStore();
 
   const currentChat = chats.find((chat) => chat.id === currentChatId);
   const themeConfig = currentChat ? getThemeConfig(currentChat.theme) : getThemeConfig('basic');
   const character = currentChat ? getCharacter(currentChat.characterId) : undefined;
+  const userProfile = getCurrentUserProfile();
+
+  // 채팅방별 시간 계산 함수
+  const getCurrentChatTime = useCallback((): Date => {
+    const timeSettings = currentChat?.timeSettings;
+    if (!timeSettings || timeSettings.mode === 'realtime') {
+      return new Date();
+    }
+    const elapsed = Date.now() - (timeSettings.startedAt || Date.now());
+    return new Date((timeSettings.customBaseTime || Date.now()) + elapsed);
+  }, [currentChat?.timeSettings]);
+
+  // 메시지 타임스탬프를 현재 시간 설정에 맞게 변환하여 포맷하는 함수
+  const formatMessageTime = useCallback((messageTimestamp: number) => {
+    const timeSettings = currentChat?.timeSettings;
+    
+    // 실시간 모드면 원래 타임스탬프 그대로 사용
+    if (!timeSettings || timeSettings.mode === 'realtime') {
+      const date = new Date(messageTimestamp);
+      return date.toLocaleTimeString('ko-KR', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+    }
+    
+    // 커스텀 모드: 현재 설정 시간과 메시지 시간의 차이를 계산
+    const currentAppTime = getCurrentChatTime();
+    const now = Date.now();
+    const messageAge = now - messageTimestamp;
+    const adjustedTime = new Date(currentAppTime.getTime() - messageAge);
+    
+    return adjustedTime.toLocaleTimeString('ko-KR', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  }, [currentChat?.timeSettings, getCurrentChatTime]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -73,11 +111,40 @@ export function ChatWindow() {
     setIsTranslating(false);
   };
 
-  const handleSendMessage = async (content: string) => {
+  // 번역 리롤 핸들러 (기존 번역을 새로 다시 번역)
+  const handleRetranslateMessage = async (messageId: string) => {
+    if (!currentChat || isTranslating) return;
+
+    const message = currentChat.messages.find(m => m.id === messageId);
+    if (!message) return;
+
+    setIsTranslating(true);
+
+    // 기존 번역 지우고 새로 번역
+    updateMessage(currentChat.id, messageId, { translatedContent: undefined });
+
+    const translation = await translateText(
+      message.content,
+      '한국어',
+      settings.translationModel,
+      settings.geminiApiKey,
+      settings.openaiApiKey
+    );
+
+    if (!translation.error) {
+      updateMessage(currentChat.id, messageId, { translatedContent: translation.content });
+    } else {
+      alert(`번역 오류: ${translation.error}`);
+    }
+
+    setIsTranslating(false);
+  };
+
+  const handleSendMessage = async (content: string, imageData?: { data: string; mimeType: string }) => {
     if (!currentChat || !character || isLoading) return;
 
-    // /t 명령어 처리: 번역만 하고 전송하지 않음
-    if (content.startsWith('/t ')) {
+    // /t 명령어 처리: 번역만 하고 전송하지 않음 (이미지는 번역 불가)
+    if (content.startsWith('/t ') && !imageData) {
       const textToTranslate = content.slice(3);
       if (!textToTranslate.trim()) return;
 
@@ -110,11 +177,21 @@ export function ChatWindow() {
 
     setIsLoading(true);
 
-    // 유저 메시지 추가
+    // 유저 메시지 추가 (이미지 포함)
     addMessage(currentChat.id, {
       chatId: currentChat.id,
       senderId: 'user',
       content,
+      imageData: imageData?.data,
+      imageMimeType: imageData?.mimeType,
+    });
+
+    // 현재 시간 가져오기 (채팅방별 시간 설정 사용)
+    const currentAppTime = getCurrentChatTime();
+    const currentTimeString = currentAppTime.toLocaleTimeString('ko-KR', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
     });
 
     // AI 응답 생성
@@ -123,14 +200,22 @@ export function ChatWindow() {
       userProfile,
       currentChat.messages,
       content,
-      settings.outputLanguage
+      settings.outputLanguage,
+      currentTimeString,
+      currentChat.theme
     );
 
+    // 이미지가 있으면 프롬프트에 이미지 설명 요청 추가
+    const finalPrompt = imageData 
+      ? `${prompt}\n\n[User sent an image along with this message. Please respond naturally considering both the text and the image.]`
+      : prompt;
+
     const response = await callAI(
-      prompt,
+      finalPrompt,
       settings.responseModel,
       settings.geminiApiKey,
-      settings.openaiApiKey
+      settings.openaiApiKey,
+      imageData ? { data: imageData.data, mimeType: imageData.mimeType } : undefined
     );
 
     if (response.error) {
@@ -212,12 +297,22 @@ export function ChatWindow() {
       // 수정된 메시지까지의 대화 내역으로 프롬프트 생성
       const messagesUpToEdit = currentChat.messages.slice(0, messageIndex);
       
+      // 현재 시간 가져오기 (채팅방별 시간 설정 사용)
+      const currentAppTime = getCurrentChatTime();
+      const currentTimeString = currentAppTime.toLocaleTimeString('ko-KR', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+      
       const prompt = buildCharacterPrompt(
         character,
         userProfile,
         messagesUpToEdit,
         newContent,
-        settings.outputLanguage
+        settings.outputLanguage,
+        currentTimeString,
+        currentChat.theme
       );
 
       const response = await callAI(
@@ -229,7 +324,7 @@ export function ChatWindow() {
 
       if (!response.error) {
         // 기존 캐릭터 응답을 새로운 응답으로 업데이트
-        updateMessage(currentChat.id, nextMessage.id, { 
+        updateMessage(currentChat.id, nextMessage.id, {
           content: response.content,
           translatedContent: undefined,
           branches: undefined,
@@ -311,10 +406,14 @@ export function ChatWindow() {
                 onGenerateBranch={() => handleGenerateBranch(message.id, index)}
                 isLastCharacterMessage={message.id === lastCharacterMessageId}
                 onTranslate={() => handleTranslateMessage(message.id)}
+                onRetranslate={() => handleRetranslateMessage(message.id)}
                 isTranslating={isTranslating}
                 isFirstInGroup={isFirstInGroup}
                 theme={currentChat.theme}
                 onEdit={message.senderId === 'user' ? (newContent) => handleEditMessage(message.id, newContent) : undefined}
+                formatTimeFunc={formatMessageTime}
+                imageData={message.imageData}
+                imageMimeType={message.imageMimeType}
               />
             );
           })}
@@ -390,10 +489,14 @@ export function ChatWindow() {
                 onGenerateBranch={() => handleGenerateBranch(message.id, index)}
                 isLastCharacterMessage={message.id === lastCharacterMessageId}
                 onTranslate={() => handleTranslateMessage(message.id)}
+                onRetranslate={() => handleRetranslateMessage(message.id)}
                 isTranslating={isTranslating}
                 isFirstInGroup={isFirstInGroup}
                 theme={currentChat.theme}
                 onEdit={message.senderId === 'user' ? (newContent) => handleEditMessage(message.id, newContent) : undefined}
+                formatTimeFunc={formatMessageTime}
+                imageData={message.imageData}
+                imageMimeType={message.imageMimeType}
               />
             );
           })}
@@ -510,11 +613,15 @@ export function ChatWindow() {
                 onGenerateBranch={() => handleGenerateBranch(message.id, index)}
                 isLastCharacterMessage={message.id === lastCharacterMessageId}
                 onTranslate={() => handleTranslateMessage(message.id)}
+                onRetranslate={() => handleRetranslateMessage(message.id)}
                 isTranslating={isTranslating}
                 isFirstInGroup={isLastInGroup}
                 showTime={false}
                 theme={currentChat.theme}
                 onEdit={message.senderId === 'user' ? (newContent) => handleEditMessage(message.id, newContent) : undefined}
+                formatTimeFunc={formatMessageTime}
+                imageData={message.imageData}
+                imageMimeType={message.imageMimeType}
               />
             );
           })}
@@ -589,10 +696,14 @@ export function ChatWindow() {
               onGenerateBranch={() => handleGenerateBranch(message.id, index)}
               isLastCharacterMessage={message.id === lastCharacterMessageId}
               onTranslate={() => handleTranslateMessage(message.id)}
+              onRetranslate={() => handleRetranslateMessage(message.id)}
               isTranslating={isTranslating}
               isFirstInGroup={isFirstInGroup}
               theme={currentChat.theme}
               onEdit={message.senderId === 'user' ? (newContent) => handleEditMessage(message.id, newContent) : undefined}
+              formatTimeFunc={formatMessageTime}
+              imageData={message.imageData}
+              imageMimeType={message.imageMimeType}
             />
           );
         })}
