@@ -88,6 +88,16 @@ export interface UserProfile {
   freeProfile?: string;
 }
 
+// 메모리 요약 (장기 기억)
+export interface MemorySummary {
+  id: string;
+  content: string; // 마크다운 형식 요약 (영어)
+  summarizedMessageIds: string[]; // 요약된 메시지 ID들
+  startTime: number; // 요약 대상 시작 시간
+  endTime: number; // 요약 대상 끝 시간
+  createdAt: number;
+}
+
 // 채팅방
 export interface Chat {
   id: string;
@@ -95,10 +105,12 @@ export interface Chat {
   userProfileId?: string; // 유저 프로필 슬롯 ID
   theme: ThemeType; // 채팅방 고정 테마
   messages: Message[];
+  memorySummaries?: MemorySummary[]; // 장기 기억 요약들
   mode: ChatMode;
   autopilotScenario?: string; // Autopilot 모드 시나리오
   isAutopilotRunning?: boolean;
   timeSettings?: TimeSettings; // 채팅방별 시간 설정
+  outputLanguage?: OutputLanguage; // 채팅방별 출력 언어 설정
   createdAt: number;
   updatedAt: number;
 }
@@ -113,17 +125,18 @@ export interface MessageBranch {
 
 // 앱 설정
 export interface AppSettings {
-  theme: ThemeType;
   geminiApiKey?: string;
   openaiApiKey?: string;
   responseModel: string; // 답변 모델 (gemini-xxx 또는 gpt-xxx)
   translationModel: string; // 번역 모델 (gemini-xxx 또는 gpt-xxx)
-  outputLanguage: OutputLanguage; // 출력 언어 설정
-  timeSettings: TimeSettings; // 시간 설정
+  summaryModel: string; // 요약 모델 (gemini-xxx 또는 gpt-xxx)
   // 레거시 호환 (deprecated)
   defaultAIProvider?: AIProvider;
   geminiModel?: string;
   openaiModel?: string;
+  theme?: ThemeType; // deprecated - 기존 데이터 호환용
+  outputLanguage?: OutputLanguage; // deprecated - 채팅방별로 이동
+  timeSettings?: TimeSettings; // deprecated - 채팅방별로 이동
 }
 
 // 전체 앱 상태

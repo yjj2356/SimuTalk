@@ -1,4 +1,4 @@
-import { Character, UserProfile, Message } from '@/types';
+import { Character, UserProfile, Message, MemorySummary } from '@/types';
 
 interface AIResponse {
   content: string;
@@ -81,14 +81,6 @@ export async function callGeminiAPI(
     // 텍스트 프롬프트 추가
     parts.push({ text: prompt });
     
-    // 디버그 로그
-    console.log('[Gemini API] 이미지 포함 여부:', !!imageInput);
-    if (imageInput) {
-      console.log('[Gemini API] 이미지 MIME 타입:', imageInput.mimeType);
-      console.log('[Gemini API] 이미지 데이터 길이:', imageInput.data.length);
-      console.log('[Gemini API] Parts 구조:', parts.map(p => p.text ? 'text' : 'inlineData'));
-    }
-    
     // 요청 body 구성
     const requestBody: Record<string, unknown> = {
       contents: [
@@ -127,12 +119,10 @@ export async function callGeminiAPI(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      console.error('[Gemini API] 에러 응답:', errorData);
       throw new Error(`API 오류: ${response.status} - ${errorData.error?.message || '알 수 없는 오류'}`);
     }
 
     const data = await response.json();
-    console.log('[Gemini API] 응답 데이터:', JSON.stringify(data, null, 2));
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     return { content };
   } catch (error) {
@@ -252,7 +242,8 @@ export function buildCharacterPrompt(
   userMessage: string,
   outputLanguage: string = 'korean',
   currentTime?: string,
-  messengerTheme: string = 'kakao'
+  messengerTheme: string = 'kakao',
+  memorySummaries?: MemorySummary[]
 ): string {
   let characterInfo = '';
   if (character.inputMode === 'field' && character.fieldProfile) {
@@ -306,6 +297,11 @@ ${u.additionalInfo ? `추가 정보: ${u.additionalInfo}` : ''}
   const targetLanguage = languageNames[outputLanguage] || outputLanguage;
   const languageInstruction = `\n\nIMPORTANT: You MUST respond in ${targetLanguage}.`;
 
+  // 메모리 요약 내용 (있으면 추가)
+  const memorySection = memorySummaries && memorySummaries.length > 0
+    ? `\n[Long-term Memory - Previous Conversation Summary]\n${memorySummaries.map(m => m.content).join('\n\n---\n\n')}\n`
+    : '';
+
   const prompt = `
 You are an AI roleplaying as a character in a ${messengerName} chat.
 This is a TEXT MESSAGING conversation - you are NOT meeting in person.
@@ -317,7 +313,7 @@ ${characterInfo}
 
 [User Information]
 ${userInfo}
-
+${memorySection}
 [Previous Messages]
 ${conversationHistory}
 
@@ -330,7 +326,8 @@ ${userMessage}
 - Reflect the character's personality and speech style.
 - Each line break in your response will be displayed as a SEPARATE message bubble in the UI.
 - Use line breaks strategically to create natural message flow, like real texting.
-- Only output the message content itself, without any explanations or meta-commentary.${languageInstruction}
+- Only output the message content itself, without any explanations or meta-commentary.
+- If there is long-term memory, use it to maintain consistency with past conversations.${languageInstruction}
   `.trim();
 
   return prompt;
@@ -537,4 +534,198 @@ ${existingVersions}
   `.trim();
 
   return prompt;
+}
+
+// ============================================
+// 장기 기억 (Memory) 시스템
+// ============================================
+
+// 대략적인 토큰 수 계산 (영어: 4자당 1토큰, 한국어: 2자당 1토큰 추정)
+export function estimateTokenCount(text: string): number {
+  // 한글 문자 수
+  const koreanChars = (text.match(/[\uAC00-\uD7AF]/g) || []).length;
+  // 영문 + 기타 문자 수
+  const otherChars = text.length - koreanChars;
+  
+  // 한글은 2자당 1토큰, 영문은 4자당 1토큰으로 대략 계산
+  return Math.ceil(koreanChars / 2) + Math.ceil(otherChars / 4);
+}
+
+// 메시지 배열의 총 토큰 수 계산
+export function calculateMessagesTokens(messages: Message[]): number {
+  return messages.reduce((total, msg) => {
+    let tokens = estimateTokenCount(msg.content);
+    if (msg.translatedContent) {
+      tokens += estimateTokenCount(msg.translatedContent);
+    }
+    return total + tokens;
+  }, 0);
+}
+
+// 메모리 요약들의 총 토큰 수 계산
+export function calculateMemorySummariesTokens(summaries: MemorySummary[]): number {
+  return summaries.reduce((total, summary) => {
+    return total + estimateTokenCount(summary.content);
+  }, 0);
+}
+
+// 전체 컨텍스트 토큰 계산 (메시지 + 메모리)
+export function calculateTotalContextTokens(messages: Message[], memorySummaries: MemorySummary[] = []): number {
+  return calculateMessagesTokens(messages) + calculateMemorySummariesTokens(memorySummaries);
+}
+
+// 대화 요약 프롬프트 생성
+export function buildSummarizePrompt(
+  messages: Message[],
+  characterName: string,
+  userName: string
+): string {
+  const conversationText = messages.map((msg) => {
+    const sender = msg.senderId === 'user' ? userName : characterName;
+    const time = new Date(msg.timestamp).toISOString();
+    return `[${time}] ${sender}: ${msg.content}`;
+  }).join('\n');
+
+  const prompt = `
+You are a conversation summarizer. Summarize the following chat conversation in a structured, chronological format.
+
+[CONVERSATION TO SUMMARIZE]
+${conversationText}
+
+[OUTPUT REQUIREMENTS]
+1. Write in English only
+2. Use Markdown format
+3. Do NOT use ** for emphasis (no bold text)
+4. Organize by time periods and key events
+5. Keep proper nouns (names, places) in original language with parentheses, e.g., "the user (유저)" or "visited Seoul (서울)"
+6. Be concise but capture important details, emotions, and plot points
+7. Include timestamps or time references when relevant
+
+[OUTPUT FORMAT]
+## Summary: [Start Date] - [End Date]
+
+### Timeline
+- [Time/Date]: Brief description of what happened
+
+### Key Events
+- Event 1: Description
+- Event 2: Description
+
+### Relationship/Emotional Notes
+- Any significant relationship developments or emotional moments
+
+### Important Details to Remember
+- Names, places, promises, or facts that should be remembered
+  `.trim();
+
+  return prompt;
+}
+
+// 메모리 재요약 프롬프트 생성 (기존 요약들을 하나로 압축)
+export function buildResummarizePrompt(
+  summaries: MemorySummary[]
+): string {
+  const summaryTexts = summaries.map((s, i) => {
+    return `[SUMMARY ${i + 1}]\n${s.content}`;
+  }).join('\n\n');
+
+  const prompt = `
+You are a memory consolidation assistant. Combine the following conversation summaries into a single, more concise summary while preserving all important information.
+
+[EXISTING SUMMARIES TO CONSOLIDATE]
+${summaryTexts}
+
+[OUTPUT REQUIREMENTS]
+1. Write in English only
+2. Use Markdown format
+3. Do NOT use ** for emphasis (no bold text)
+4. Merge overlapping information
+5. Keep proper nouns (names, places) in original language with parentheses
+6. Prioritize: character relationships, plot developments, important facts
+7. Remove redundant details but keep unique events
+
+[OUTPUT FORMAT]
+## Consolidated Memory Summary
+
+### Key Timeline
+- Major events in chronological order
+
+### Relationship Status
+- Current state of relationships between characters
+
+### Important Facts
+- Names, places, promises, or recurring themes to remember
+  `.trim();
+
+  return prompt;
+}
+
+// 대화 요약 API 호출
+export async function summarizeConversation(
+  messages: Message[],
+  characterName: string,
+  userName: string,
+  modelId: string,
+  geminiApiKey?: string,
+  openaiApiKey?: string
+): Promise<AIResponse> {
+  const prompt = buildSummarizePrompt(messages, characterName, userName);
+  return callAI(prompt, modelId, geminiApiKey, openaiApiKey);
+}
+
+// 메모리 재요약 API 호출
+export async function resummarizeSummaries(
+  summaries: MemorySummary[],
+  modelId: string,
+  geminiApiKey?: string,
+  openaiApiKey?: string
+): Promise<AIResponse> {
+  const prompt = buildResummarizePrompt(summaries);
+  return callAI(prompt, modelId, geminiApiKey, openaiApiKey);
+}
+
+// 요약이 필요한지 확인 (메시지 + 메모리 토큰 기준)
+export function shouldSummarize(
+  messages: Message[],
+  tokenThreshold: number = 40000,
+  memorySummaries: MemorySummary[] = []
+): boolean {
+  const totalTokens = calculateTotalContextTokens(messages, memorySummaries);
+  return totalTokens > tokenThreshold;
+}
+
+// 메모리 재요약이 필요한지 확인 (메모리 토큰만 기준)
+export function shouldResummarize(
+  memorySummaries: MemorySummary[],
+  memoryTokenThreshold: number = 10000 // 메모리가 10000 토큰 넘으면 재요약
+): boolean {
+  const memoryTokens = calculateMemorySummariesTokens(memorySummaries);
+  return memoryTokens > memoryTokenThreshold;
+}
+
+// 요약할 메시지 범위 결정 (4세트 = 8메시지 단위)
+export function getMessagesToSummarize(
+  messages: Message[],
+  messageSetCount: number = 4 // 수신+발신 세트 수 (기본 4세트 = 8메시지)
+): Message[] {
+  const targetMessageCount = messageSetCount * 2; // 세트당 2개 메시지
+  
+  // 앞에서부터 targetMessageCount 개 또는 전체 메시지의 절반 중 작은 것
+  const maxToSummarize = Math.min(targetMessageCount, Math.floor(messages.length / 2));
+  
+  if (maxToSummarize < 2) return [];
+  
+  return messages.slice(0, maxToSummarize);
+}
+
+// 재요약할 메모리 범위 결정 (가장 오래된 것부터)
+export function getMemoriesToResummarize(
+  memorySummaries: MemorySummary[],
+  count: number = 2 // 기본 2개 요약을 1개로 합침
+): MemorySummary[] {
+  if (memorySummaries.length < count) return [];
+  
+  // 가장 오래된 것부터 count개 선택
+  const sorted = [...memorySummaries].sort((a, b) => a.createdAt - b.createdAt);
+  return sorted.slice(0, count);
 }

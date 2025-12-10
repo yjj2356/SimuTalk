@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Chat, Message, ChatMode, MessageBranch, ThemeType, TimeSettings } from '@/types';
+import { Chat, Message, ChatMode, MessageBranch, ThemeType, TimeSettings, MemorySummary, OutputLanguage } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
 interface ChatState {
@@ -17,6 +17,11 @@ interface ChatState {
   setAutopilotScenario: (chatId: string, scenario: string) => void;
   setAutopilotRunning: (chatId: string, running: boolean) => void;
   setChatTimeSettings: (chatId: string, timeSettings: TimeSettings | undefined) => void;
+  setChatOutputLanguage: (chatId: string, language: OutputLanguage) => void;
+  // 메모리 관련
+  addMemorySummary: (chatId: string, summary: Omit<MemorySummary, 'id' | 'createdAt'>) => void;
+  removeMemorySummaries: (chatId: string, summaryIds: string[]) => void;
+  removeMessages: (chatId: string, messageIds: string[]) => void;
   getChat: (chatId: string) => Chat | undefined;
   getChatByCharacter: (characterId: string) => Chat | undefined;
   getChatsByCharacter: (characterId: string) => Chat[];
@@ -158,6 +163,62 @@ export const useChatStore = create<ChatState>()(
           chats: state.chats.map((chat) =>
             chat.id === chatId
               ? { ...chat, timeSettings, updatedAt: Date.now() }
+              : chat
+          ),
+        })),
+      setChatOutputLanguage: (chatId, outputLanguage) =>
+        set((state) => ({
+          chats: state.chats.map((chat) =>
+            chat.id === chatId
+              ? { ...chat, outputLanguage, updatedAt: Date.now() }
+              : chat
+          ),
+        })),
+      // 메모리 요약 추가
+      addMemorySummary: (chatId, summaryData) =>
+        set((state) => ({
+          chats: state.chats.map((chat) =>
+            chat.id === chatId
+              ? {
+                  ...chat,
+                  memorySummaries: [
+                    ...(chat.memorySummaries || []),
+                    {
+                      ...summaryData,
+                      id: uuidv4(),
+                      createdAt: Date.now(),
+                    },
+                  ],
+                  updatedAt: Date.now(),
+                }
+              : chat
+          ),
+        })),
+      // 메모리 요약들 삭제 (재요약 시 사용)
+      removeMemorySummaries: (chatId, summaryIds) =>
+        set((state) => ({
+          chats: state.chats.map((chat) =>
+            chat.id === chatId
+              ? {
+                  ...chat,
+                  memorySummaries: (chat.memorySummaries || []).filter(
+                    (s) => !summaryIds.includes(s.id)
+                  ),
+                  updatedAt: Date.now(),
+                }
+              : chat
+          ),
+        })),
+      // 요약된 메시지들 삭제
+      removeMessages: (chatId, messageIds) =>
+        set((state) => ({
+          chats: state.chats.map((chat) =>
+            chat.id === chatId
+              ? {
+                  ...chat,
+                  messages: chat.messages.filter((msg) => !messageIds.includes(msg.id)),
+                  updatedAt: Date.now(),
+                }
               : chat
           ),
         })),

@@ -3,7 +3,19 @@ import { ChatBubble } from './ChatBubble';
 import { ChatInput } from './ChatInput';
 import { useSettingsStore, useChatStore, useCharacterStore, useUserStore } from '@/stores';
 import { getThemeConfig } from '@/utils/theme';
-import { callAI, buildCharacterPrompt, buildBranchPrompt, translateText } from '@/services/aiService';
+import { OutputLanguage } from '@/types';
+import { 
+  callAI, 
+  buildCharacterPrompt, 
+  buildBranchPrompt, 
+  translateText,
+  shouldSummarize,
+  shouldResummarize,
+  getMessagesToSummarize,
+  getMemoriesToResummarize,
+  summarizeConversation,
+  resummarizeSummaries,
+} from '@/services/aiService';
 
 // 출력 언어 -> 언어명 매핑
 const languageNames: Record<string, string> = {
@@ -15,10 +27,13 @@ const languageNames: Record<string, string> = {
 
 export function ChatWindow() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const languageMenuRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [showLanguageMenu, setShowLanguageMenu] = useState(false);
   const { settings } = useSettingsStore();
-  const { chats, currentChatId, addMessage, updateMessage, addBranch, setBranchIndex } = useChatStore();
+  const { chats, currentChatId, addMessage, updateMessage, addBranch, setBranchIndex, addMemorySummary, removeMemorySummaries, removeMessages, setChatOutputLanguage } = useChatStore();
   const { getCharacter } = useCharacterStore();
   const { getCurrentUserProfile } = useUserStore();
 
@@ -71,6 +86,22 @@ export function ChatWindow() {
   useEffect(() => {
     scrollToBottom();
   }, [currentChat?.messages]);
+
+  // 언어 메뉴 외부 클릭 시 닫기
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (languageMenuRef.current && !languageMenuRef.current.contains(event.target as Node)) {
+        setShowLanguageMenu(false);
+      }
+    };
+
+    if (showLanguageMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showLanguageMenu]);
 
   // 마지막 캐릭터 메시지 ID 찾기
   const getLastCharacterMessageId = () => {
@@ -150,7 +181,8 @@ export function ChatWindow() {
 
       setIsLoading(true);
 
-      const targetLanguage = languageNames[settings.outputLanguage] || settings.outputLanguage;
+      const chatOutputLanguage = currentChat.outputLanguage || 'korean';
+      const targetLanguage = languageNames[chatOutputLanguage] || chatOutputLanguage;
       const translation = await translateText(
         textToTranslate,
         targetLanguage,
@@ -194,20 +226,24 @@ export function ChatWindow() {
       hour12: true,
     });
 
-    // AI 응답 생성
+    // 채팅방별 언어 설정 사용 (기본값: korean)
+    const outputLanguage = currentChat.outputLanguage || 'korean';
+
+    // AI 응답 생성 (메모리 요약 포함)
     const prompt = buildCharacterPrompt(
       character,
       userProfile,
       currentChat.messages,
       content,
-      settings.outputLanguage,
+      outputLanguage,
       currentTimeString,
-      currentChat.theme
+      currentChat.theme,
+      currentChat.memorySummaries
     );
 
     // 이미지가 있으면 프롬프트에 이미지 설명 요청 추가
     const finalPrompt = imageData 
-      ? `${prompt}\n\n[User sent an image along with this message. Please respond naturally considering both the text and the image.]`
+      ? `${prompt}\n\n[IMPORTANT: The user has sent an image along with this message. You MUST look at and acknowledge the image in your response. Describe what you see in the image or react to it naturally as the character would.]`
       : prompt;
 
     const response = await callAI(
@@ -233,6 +269,94 @@ export function ChatWindow() {
     }
 
     setIsLoading(false);
+    
+    // 메모리 시스템: 토큰 초과 시 자동 요약
+    await checkAndSummarizeIfNeeded();
+  };
+
+  // 메모리 요약 필요 여부 확인 및 실행
+  const checkAndSummarizeIfNeeded = async () => {
+    if (!currentChat || !character || isSummarizing) return;
+    
+    const TOKEN_THRESHOLD = 40000; // 40000 토큰 초과 시 요약
+    const MEMORY_TOKEN_THRESHOLD = 10000; // 메모리가 10000 토큰 넘으면 재요약
+    const MESSAGE_SET_COUNT = 4; // 수신+발신 4세트 = 8메시지 단위로 요약
+    
+    const memorySummaries = currentChat.memorySummaries || [];
+    
+    // 1단계: 메모리가 너무 많으면 먼저 재요약
+    if (shouldResummarize(memorySummaries, MEMORY_TOKEN_THRESHOLD)) {
+      setIsSummarizing(true);
+      
+      const memoriesToMerge = getMemoriesToResummarize(memorySummaries, 2);
+      if (memoriesToMerge.length >= 2) {
+        console.log('[Memory] 메모리 재요약 시작:', memoriesToMerge.length, '개 요약 병합');
+        
+        const resummarizeResponse = await resummarizeSummaries(
+          memoriesToMerge,
+          settings.summaryModel || settings.responseModel,
+          settings.geminiApiKey,
+          settings.openaiApiKey
+        );
+        
+        if (!resummarizeResponse.error && resummarizeResponse.content) {
+          // 기존 요약들 삭제
+          removeMemorySummaries(currentChat.id, memoriesToMerge.map(m => m.id));
+          
+          // 새로운 통합 요약 추가
+          addMemorySummary(currentChat.id, {
+            content: resummarizeResponse.content,
+            summarizedMessageIds: memoriesToMerge.flatMap(m => m.summarizedMessageIds),
+            startTime: Math.min(...memoriesToMerge.map(m => m.startTime)),
+            endTime: Math.max(...memoriesToMerge.map(m => m.endTime)),
+          });
+          
+          console.log('[Memory] 메모리 재요약 완료');
+        }
+      }
+      
+      setIsSummarizing(false);
+      return; // 재요약 후 다음 사이클에서 메시지 요약 검사
+    }
+    
+    // 2단계: 전체 컨텍스트(메시지 + 메모리)가 임계값 초과 시 메시지 요약
+    if (!shouldSummarize(currentChat.messages, TOKEN_THRESHOLD, memorySummaries)) return;
+    
+    const messagesToSummarize = getMessagesToSummarize(currentChat.messages, MESSAGE_SET_COUNT);
+    if (messagesToSummarize.length < 2) return;
+    
+    setIsSummarizing(true);
+    
+    const characterName = character.fieldProfile?.name || character.freeProfileName || '캐릭터';
+    const userName = userProfile.fieldProfile?.name || '유저';
+    
+    console.log('[Memory] 대화 요약 시작:', messagesToSummarize.length, '개 메시지');
+    
+    const summaryResponse = await summarizeConversation(
+      messagesToSummarize,
+      characterName,
+      userName,
+      settings.summaryModel || settings.responseModel,
+      settings.geminiApiKey,
+      settings.openaiApiKey
+    );
+    
+    if (!summaryResponse.error && summaryResponse.content) {
+      // 요약 저장
+      addMemorySummary(currentChat.id, {
+        content: summaryResponse.content,
+        summarizedMessageIds: messagesToSummarize.map(m => m.id),
+        startTime: messagesToSummarize[0].timestamp,
+        endTime: messagesToSummarize[messagesToSummarize.length - 1].timestamp,
+      });
+      
+      // 요약된 메시지들 삭제
+      removeMessages(currentChat.id, messagesToSummarize.map(m => m.id));
+      
+      console.log('[Memory] 대화 요약 완료:', messagesToSummarize.length, '개 메시지 요약됨');
+    }
+    
+    setIsSummarizing(false);
   };
 
   // 분기 생성 핸들러
@@ -305,12 +429,15 @@ export function ChatWindow() {
         hour12: true,
       });
       
+      // 채팅방별 언어 설정 사용
+      const outputLanguage = currentChat.outputLanguage || 'korean';
+      
       const prompt = buildCharacterPrompt(
         character,
         userProfile,
         messagesUpToEdit,
         newContent,
-        settings.outputLanguage,
+        outputLanguage,
         currentTimeString,
         currentChat.theme
       );
@@ -375,16 +502,50 @@ export function ChatWindow() {
             {characterName}
           </div>
           
-          {/* 우측: 검색 + 메뉴 */}
+          {/* 우측: 검색 + 언어 메뉴 */}
           <div className="flex items-center gap-[18px]">
             <svg className="w-6 h-6 cursor-pointer" fill="currentColor" viewBox="0 0 24 24">
               <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
             </svg>
-            <svg className="w-6 h-6 cursor-pointer" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
-            </svg>
+            <div className="relative" ref={languageMenuRef}>
+              <button
+                onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+                className="w-6 h-6 flex items-center justify-center cursor-pointer"
+                title="언어 설정"
+              >
+                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
+                </svg>
+              </button>
+              {showLanguageMenu && (
+                <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[120px] z-50">
+                  <div className="px-3 py-1.5 text-xs text-gray-500 font-medium">출력 언어</div>
+                  {(Object.keys(languageNames) as OutputLanguage[]).map((lang) => (
+                    <button
+                      key={lang}
+                      onClick={() => {
+                        setChatOutputLanguage(currentChat.id, lang);
+                        setShowLanguageMenu(false);
+                      }}
+                      className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-100 ${
+                        (currentChat.outputLanguage || 'korean') === lang ? 'text-blue-600 font-medium' : 'text-gray-700'
+                      }`}
+                    >
+                      {languageNames[lang]}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* 요약 중 표시기 */}
+        {isSummarizing && (
+          <div className="bg-yellow-100 text-yellow-800 text-center py-1 text-sm">
+            요약중...
+          </div>
+        )}
 
         {/* 메시지 영역 */}
         <div className="flex-1 overflow-y-auto pb-[10px] px-2">
@@ -463,11 +624,45 @@ export function ChatWindow() {
             <svg className="w-5 h-5 cursor-pointer" fill="currentColor" viewBox="0 0 24 24">
               <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
             </svg>
-            <svg className="w-5 h-5 cursor-pointer" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
-            </svg>
+            <div className="relative" ref={languageMenuRef}>
+              <button
+                onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+                className="w-5 h-5 flex items-center justify-center cursor-pointer"
+                title="언어 설정"
+              >
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
+                </svg>
+              </button>
+              {showLanguageMenu && (
+                <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[120px] z-50">
+                  <div className="px-3 py-1.5 text-xs text-gray-500 font-medium">출력 언어</div>
+                  {(Object.keys(languageNames) as OutputLanguage[]).map((lang) => (
+                    <button
+                      key={lang}
+                      onClick={() => {
+                        setChatOutputLanguage(currentChat.id, lang);
+                        setShowLanguageMenu(false);
+                      }}
+                      className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-100 ${
+                        (currentChat.outputLanguage || 'korean') === lang ? 'text-green-600 font-medium' : 'text-gray-700'
+                      }`}
+                    >
+                      {languageNames[lang]}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </header>
+
+        {/* 요약 중 표시기 */}
+        {isSummarizing && (
+          <div className="bg-green-100 text-green-800 text-center py-1 text-sm">
+            요약중...
+          </div>
+        )}
 
         {/* 메시지 영역 */}
         <div className="flex-1 overflow-y-auto pb-[10px] px-2">
@@ -568,13 +763,50 @@ export function ChatWindow() {
             </div>
           </div>
           
-          {/* 우측: 영상통화 아이콘 */}
-          <div className="flex-1 flex justify-end mb-[15px]">
+          {/* 우측: 영상통화 아이콘 + 언어 메뉴 */}
+          <div className="flex-1 flex justify-end items-center gap-3 mb-[15px]">
             <svg className="w-[26px] h-[26px] cursor-pointer" fill="#007AFF" viewBox="0 0 24 24">
               <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
             </svg>
+            <div className="relative" ref={languageMenuRef}>
+              <button
+                onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+                className="w-6 h-6 flex items-center justify-center cursor-pointer"
+                title="언어 설정"
+              >
+                <svg className="w-5 h-5" fill="#007AFF" viewBox="0 0 24 24">
+                  <path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
+                </svg>
+              </button>
+              {showLanguageMenu && (
+                <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[120px] z-50">
+                  <div className="px-3 py-1.5 text-xs text-gray-500 font-medium">출력 언어</div>
+                  {(Object.keys(languageNames) as OutputLanguage[]).map((lang) => (
+                    <button
+                      key={lang}
+                      onClick={() => {
+                        setChatOutputLanguage(currentChat.id, lang);
+                        setShowLanguageMenu(false);
+                      }}
+                      className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-100 ${
+                        (currentChat.outputLanguage || 'korean') === lang ? 'text-[#007AFF] font-medium' : 'text-gray-700'
+                      }`}
+                    >
+                      {languageNames[lang]}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* 요약 중 표시기 */}
+        {isSummarizing && (
+          <div className="bg-blue-100 text-blue-800 text-center py-1 text-sm">
+            요약중...
+          </div>
+        )}
 
         {/* 메시지 영역 */}
         <div className="flex-1 overflow-y-auto py-[10px] px-[10px] flex flex-col gap-1">
@@ -664,7 +896,7 @@ export function ChatWindow() {
             <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 border-2 border-white rounded-full ${currentChat.mode === 'autopilot' ? 'bg-purple-500' : 'bg-green-500'}`}></div>
           </div>
         )}
-        <div>
+        <div className="flex-1">
           <h2 className={`font-bold ${themeConfig.header.textColor} leading-tight`}>
             {characterName}
           </h2>
@@ -674,7 +906,45 @@ export function ChatWindow() {
             </p>
           </div>
         </div>
+        {/* 언어 메뉴 */}
+        <div className="relative" ref={languageMenuRef}>
+          <button
+            onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
+            title="언어 설정"
+          >
+            <svg className="w-5 h-5 text-gray-500" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
+            </svg>
+          </button>
+          {showLanguageMenu && (
+            <div className="absolute right-0 top-10 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[120px] z-50">
+              <div className="px-3 py-1.5 text-xs text-gray-500 font-medium">출력 언어</div>
+              {(Object.keys(languageNames) as OutputLanguage[]).map((lang) => (
+                <button
+                  key={lang}
+                  onClick={() => {
+                    setChatOutputLanguage(currentChat.id, lang);
+                    setShowLanguageMenu(false);
+                  }}
+                  className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-100 ${
+                    (currentChat.outputLanguage || 'korean') === lang ? 'text-black font-medium' : 'text-gray-700'
+                  }`}
+                >
+                  {languageNames[lang]}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* 요약 중 표시기 */}
+      {isSummarizing && (
+        <div className="bg-gray-100 text-gray-800 text-center py-1 text-sm">
+          요약중...
+        </div>
+      )}
 
       {/* 메시지 영역 */}
       <div className={`flex-1 overflow-y-auto p-4 ${themeConfig.background}`}>
