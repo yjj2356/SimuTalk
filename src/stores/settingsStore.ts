@@ -1,23 +1,21 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { AppSettings, ThemeType, AIProvider, OutputLanguage } from '@/types';
+import { AppSettings, ThemeType, OutputLanguage } from '@/types';
 
 interface SettingsState {
   settings: AppSettings;
   setTheme: (theme: ThemeType) => void;
   setGeminiApiKey: (key: string) => void;
   setOpenAIApiKey: (key: string) => void;
-  setDefaultAIProvider: (provider: AIProvider) => void;
-  setGeminiModel: (model: string) => void;
-  setOpenAIModel: (model: string) => void;
+  setResponseModel: (model: string) => void;
+  setTranslationModel: (model: string) => void;
   setOutputLanguage: (language: OutputLanguage) => void;
 }
 
 const defaultSettings: AppSettings = {
   theme: 'kakao',
-  defaultAIProvider: 'gemini',
-  geminiModel: 'gemini-3-pro-preview',
-  openaiModel: 'gpt-5.1-chat-latest',
+  responseModel: 'gemini-3-pro-preview',
+  translationModel: 'gemini-2.5-flash-preview-09-2025',
   outputLanguage: 'korean',
 };
 
@@ -37,17 +35,13 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           settings: { ...state.settings, openaiApiKey },
         })),
-      setDefaultAIProvider: (defaultAIProvider) =>
+      setResponseModel: (responseModel) =>
         set((state) => ({
-          settings: { ...state.settings, defaultAIProvider },
+          settings: { ...state.settings, responseModel },
         })),
-      setGeminiModel: (geminiModel) =>
+      setTranslationModel: (translationModel) =>
         set((state) => ({
-          settings: { ...state.settings, geminiModel },
-        })),
-      setOpenAIModel: (openaiModel) =>
-        set((state) => ({
-          settings: { ...state.settings, openaiModel },
+          settings: { ...state.settings, translationModel },
         })),
       setOutputLanguage: (outputLanguage) =>
         set((state) => ({

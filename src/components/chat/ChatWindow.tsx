@@ -3,7 +3,7 @@ import { ChatBubble } from './ChatBubble';
 import { ChatInput } from './ChatInput';
 import { useSettingsStore, useChatStore, useCharacterStore, useUserStore } from '@/stores';
 import { getThemeConfig } from '@/utils/theme';
-import { callGeminiAPI, callOpenAIAPI, buildCharacterPrompt, buildBranchPrompt, translateText } from '@/services/aiService';
+import { callAI, buildCharacterPrompt, buildBranchPrompt, translateText } from '@/services/aiService';
 
 // 출력 언어 -> 언어명 매핑
 const languageNames: Record<string, string> = {
@@ -51,19 +51,6 @@ export function ChatWindow() {
   const handleTranslateMessage = async (messageId: string) => {
     if (!currentChat || isTranslating) return;
 
-    const apiKey = settings.defaultAIProvider === 'gemini'
-      ? settings.geminiApiKey
-      : settings.openaiApiKey;
-
-    const model = settings.defaultAIProvider === 'gemini'
-      ? settings.geminiModel
-      : settings.openaiModel;
-
-    if (!apiKey) {
-      alert('API 키가 설정되지 않았습니다.');
-      return;
-    }
-
     const message = currentChat.messages.find(m => m.id === messageId);
     if (!message) return;
 
@@ -72,13 +59,15 @@ export function ChatWindow() {
     const translation = await translateText(
       message.content,
       '한국어',
-      apiKey,
-      settings.defaultAIProvider,
-      model
+      settings.translationModel,
+      settings.geminiApiKey,
+      settings.openaiApiKey
     );
 
     if (!translation.error) {
       updateMessage(currentChat.id, messageId, { translatedContent: translation.content });
+    } else {
+      alert(`번역 오류: ${translation.error}`);
     }
 
     setIsTranslating(false);
@@ -92,28 +81,15 @@ export function ChatWindow() {
       const textToTranslate = content.slice(3);
       if (!textToTranslate.trim()) return;
 
-      const apiKey = settings.defaultAIProvider === 'gemini'
-        ? settings.geminiApiKey
-        : settings.openaiApiKey;
-
-      const model = settings.defaultAIProvider === 'gemini'
-        ? settings.geminiModel
-        : settings.openaiModel;
-
-      if (!apiKey) {
-        alert('API 키가 설정되지 않았습니다.');
-        return;
-      }
-
       setIsLoading(true);
 
       const targetLanguage = languageNames[settings.outputLanguage] || settings.outputLanguage;
       const translation = await translateText(
         textToTranslate,
         targetLanguage,
-        apiKey,
-        settings.defaultAIProvider,
-        model
+        settings.translationModel,
+        settings.geminiApiKey,
+        settings.openaiApiKey
       );
 
       if (!translation.error) {
@@ -142,24 +118,6 @@ export function ChatWindow() {
     });
 
     // AI 응답 생성
-    const apiKey = settings.defaultAIProvider === 'gemini'
-      ? settings.geminiApiKey
-      : settings.openaiApiKey;
-
-    const model = settings.defaultAIProvider === 'gemini'
-      ? settings.geminiModel
-      : settings.openaiModel;
-
-    if (!apiKey) {
-      addMessage(currentChat.id, {
-        chatId: currentChat.id,
-        senderId: character.id,
-        content: '⚠️ API 키가 설정되지 않았습니다. 설정에서 API 키를 입력해주세요.',
-      });
-      setIsLoading(false);
-      return;
-    }
-
     const prompt = buildCharacterPrompt(
       character,
       userProfile,
@@ -168,9 +126,12 @@ export function ChatWindow() {
       settings.outputLanguage
     );
 
-    const response = settings.defaultAIProvider === 'gemini'
-      ? await callGeminiAPI(prompt, apiKey, model)
-      : await callOpenAIAPI(prompt, apiKey, model);
+    const response = await callAI(
+      prompt,
+      settings.responseModel,
+      settings.geminiApiKey,
+      settings.openaiApiKey
+    );
 
     if (response.error) {
       addMessage(currentChat.id, {
@@ -193,19 +154,6 @@ export function ChatWindow() {
   const handleGenerateBranch = async (messageId: string, messageIndex: number) => {
     if (!currentChat || !character || isLoading) return;
 
-    const apiKey = settings.defaultAIProvider === 'gemini'
-      ? settings.geminiApiKey
-      : settings.openaiApiKey;
-
-    const model = settings.defaultAIProvider === 'gemini'
-      ? settings.geminiModel
-      : settings.openaiModel;
-
-    if (!apiKey) {
-      alert('API 키가 설정되지 않았습니다.');
-      return;
-    }
-
     setIsLoading(true);
 
     const message = currentChat.messages[messageIndex];
@@ -219,9 +167,12 @@ export function ChatWindow() {
       existingBranches
     );
 
-    const response = settings.defaultAIProvider === 'gemini'
-      ? await callGeminiAPI(prompt, apiKey, model)
-      : await callOpenAIAPI(prompt, apiKey, model);
+    const response = await callAI(
+      prompt,
+      settings.responseModel,
+      settings.geminiApiKey,
+      settings.openaiApiKey
+    );
 
     if (!response.error && response.content) {
       let translatedContent: string | undefined;
@@ -234,9 +185,62 @@ export function ChatWindow() {
       // 새로 생성된 분기로 이동
       const newIndex = (message.branches?.length || 0) + 1;
       setBranchIndex(currentChat.id, messageId, newIndex);
+    } else if (response.error) {
+      alert(`분기 생성 오류: ${response.error}`);
     }
 
     setIsLoading(false);
+  };
+
+  // 유저 메시지 수정 핸들러 - 수정 후 AI 응답 재생성
+  const handleEditMessage = async (messageId: string, newContent: string) => {
+    if (!currentChat || !character || isLoading) return;
+    
+    // 메시지 업데이트
+    updateMessage(currentChat.id, messageId, { content: newContent });
+    
+    // 수정된 메시지의 인덱스 찾기
+    const messageIndex = currentChat.messages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
+    
+    // 수정된 메시지 다음에 캐릭터 응답이 있는지 확인
+    const nextMessage = currentChat.messages[messageIndex + 1];
+    if (nextMessage && nextMessage.senderId === character.id) {
+      // AI 응답 재생성
+      setIsLoading(true);
+      
+      // 수정된 메시지까지의 대화 내역으로 프롬프트 생성
+      const messagesUpToEdit = currentChat.messages.slice(0, messageIndex);
+      
+      const prompt = buildCharacterPrompt(
+        character,
+        userProfile,
+        messagesUpToEdit,
+        newContent,
+        settings.outputLanguage
+      );
+
+      const response = await callAI(
+        prompt,
+        settings.responseModel,
+        settings.geminiApiKey,
+        settings.openaiApiKey
+      );
+
+      if (!response.error) {
+        // 기존 캐릭터 응답을 새로운 응답으로 업데이트
+        updateMessage(currentChat.id, nextMessage.id, { 
+          content: response.content,
+          translatedContent: undefined,
+          branches: undefined,
+          currentBranchIndex: 0
+        });
+      } else {
+        alert(`응답 재생성 오류: ${response.error}`);
+      }
+      
+      setIsLoading(false);
+    }
   };
 
   if (!currentChat || !character) {
@@ -260,9 +264,9 @@ export function ChatWindow() {
   // 카카오톡 테마 전용 렌더링
   if (currentChat.theme === 'kakao') {
     return (
-      <div className="flex-1 flex flex-col bg-kakao-bg relative">
-        {/* 카카오톡 스타일 헤더 */}
-        <div className="absolute top-0 left-0 w-full h-[50px] bg-kakao-bg flex items-center justify-between px-4 z-10">
+      <div className="flex-1 flex flex-col bg-kakao-bg h-full overflow-hidden">
+        {/* 카카오톡 스타일 헤더 - sticky로 고정 */}
+        <div className="sticky top-0 left-0 w-full h-[50px] bg-kakao-bg flex items-center justify-between px-4 z-10 flex-shrink-0">
           {/* 좌측: 뒤로가기 + 숫자 */}
           <div className="flex items-center gap-0.5 text-black cursor-pointer">
             <svg className="w-6 h-6 -ml-1.5" fill="currentColor" viewBox="0 0 24 24">
@@ -288,7 +292,7 @@ export function ChatWindow() {
         </div>
 
         {/* 메시지 영역 */}
-        <div className="flex-1 overflow-y-auto pt-[60px] pb-[10px] px-2">
+        <div className="flex-1 overflow-y-auto pb-[10px] px-2">
           {currentChat.messages.map((message, index) => {
             const prevMessage = index > 0 ? currentChat.messages[index - 1] : null;
             const isFirstInGroup = !prevMessage || prevMessage.senderId !== message.senderId;
@@ -310,6 +314,7 @@ export function ChatWindow() {
                 isTranslating={isTranslating}
                 isFirstInGroup={isFirstInGroup}
                 theme={currentChat.theme}
+                onEdit={message.senderId === 'user' ? (newContent) => handleEditMessage(message.id, newContent) : undefined}
               />
             );
           })}
@@ -332,10 +337,10 @@ export function ChatWindow() {
   // 라인 테마 전용 렌더링
   if (currentChat.theme === 'line') {
     return (
-      <div className="flex-1 flex flex-col relative" style={{ backgroundColor: '#8dabd8' }}>
-        {/* 라인 스타일 헤더 */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: '#8dabd8' }}>
+        {/* 라인 스타일 헤더 - sticky로 고정 */}
         <header 
-          className="absolute top-0 left-0 w-full flex justify-between items-center px-[15px] py-[15px] z-10"
+          className="sticky top-0 left-0 w-full flex justify-between items-center px-[15px] py-[15px] z-10 flex-shrink-0"
           style={{ backgroundColor: '#8dabd8' }}
         >
           <div className="flex items-center gap-2">
@@ -366,7 +371,7 @@ export function ChatWindow() {
         </header>
 
         {/* 메시지 영역 */}
-        <div className="flex-1 overflow-y-auto pt-[60px] pb-[10px] px-2">
+        <div className="flex-1 overflow-y-auto pb-[10px] px-2">
           {currentChat.messages.map((message, index) => {
             const prevMessage = index > 0 ? currentChat.messages[index - 1] : null;
             const isFirstInGroup = !prevMessage || prevMessage.senderId !== message.senderId;
@@ -388,6 +393,7 @@ export function ChatWindow() {
                 isTranslating={isTranslating}
                 isFirstInGroup={isFirstInGroup}
                 theme={currentChat.theme}
+                onEdit={message.senderId === 'user' ? (newContent) => handleEditMessage(message.id, newContent) : undefined}
               />
             );
           })}
@@ -413,10 +419,10 @@ export function ChatWindow() {
     const avatarText = characterName.length >= 3 ? characterName.charAt(0) : characterName;
     
     return (
-      <div className="flex-1 flex flex-col bg-white relative overflow-hidden">
-        {/* iMessage 스타일 헤더 */}
+      <div className="flex-1 flex flex-col bg-white h-full overflow-hidden">
+        {/* iMessage 스타일 헤더 - sticky로 고정 */}
         <div 
-          className="flex justify-between items-center px-3 py-[10px] z-10 border-b border-[#ceced2]"
+          className="sticky top-0 flex justify-between items-center px-3 py-[10px] z-10 border-b border-[#ceced2] flex-shrink-0"
           style={{ 
             backgroundColor: 'rgba(255, 255, 255, 0.85)',
             backdropFilter: 'blur(10px)',
@@ -508,6 +514,7 @@ export function ChatWindow() {
                 isFirstInGroup={isLastInGroup}
                 showTime={false}
                 theme={currentChat.theme}
+                onEdit={message.senderId === 'user' ? (newContent) => handleEditMessage(message.id, newContent) : undefined}
               />
             );
           })}
@@ -529,9 +536,9 @@ export function ChatWindow() {
 
   // 기본/다른 테마 렌더링
   return (
-    <div className={`flex-1 flex flex-col ${themeConfig.background} relative`}>
-      {/* 채팅방 헤더 */}
-      <div className={`flex items-center gap-4 ${themeConfig.header.style} ${themeConfig.header.bg} sticky top-0 z-10`}>
+    <div className={`flex-1 flex flex-col ${themeConfig.background} h-full overflow-hidden`}>
+      {/* 채팅방 헤더 - sticky로 고정 */}
+      <div className={`flex items-center gap-4 ${themeConfig.header.style} ${themeConfig.header.bg} sticky top-0 z-10 flex-shrink-0`}>
         {themeConfig.showProfilePicture && (
           <div className="relative">
             {(character.fieldProfile?.profileImage || character.freeProfileImage) ? (
@@ -585,6 +592,7 @@ export function ChatWindow() {
               isTranslating={isTranslating}
               isFirstInGroup={isFirstInGroup}
               theme={currentChat.theme}
+              onEdit={message.senderId === 'user' ? (newContent) => handleEditMessage(message.id, newContent) : undefined}
             />
           );
         })}

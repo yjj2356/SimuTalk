@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useChatStore, useSettingsStore, useCharacterStore, useUserStore } from '@/stores';
-import { callGeminiAPI, callOpenAIAPI, buildAutopilotPrompt } from '@/services/aiService';
+import { callAI, buildAutopilotPrompt } from '@/services/aiService';
 
 interface AutopilotControlsProps {
   chatId: string;
@@ -26,15 +26,6 @@ export function AutopilotControls({ chatId }: AutopilotControlsProps) {
       return;
     }
 
-    const apiKey = settings.defaultAIProvider === 'gemini'
-      ? settings.geminiApiKey
-      : settings.openaiApiKey;
-
-    if (!apiKey) {
-      alert('API 키가 설정되지 않았습니다.');
-      return;
-    }
-
     // 다음 화자 결정 (번갈아가며)
     const lastMessage = chat.messages[chat.messages.length - 1];
     const nextSpeaker = !lastMessage || lastMessage.senderId !== 'user' ? 'user' : 'character';
@@ -47,9 +38,12 @@ export function AutopilotControls({ chatId }: AutopilotControlsProps) {
       nextSpeaker
     );
 
-    const response = settings.defaultAIProvider === 'gemini'
-      ? await callGeminiAPI(prompt, apiKey)
-      : await callOpenAIAPI(prompt, apiKey);
+    const response = await callAI(
+      prompt,
+      settings.responseModel,
+      settings.geminiApiKey,
+      settings.openaiApiKey
+    );
 
     if (!response.error) {
       addMessage(chatId, {
@@ -57,6 +51,8 @@ export function AutopilotControls({ chatId }: AutopilotControlsProps) {
         senderId: nextSpeaker === 'user' ? 'user' : character.id,
         content: response.content,
       });
+    } else {
+      alert(`오류: ${response.error}`);
     }
   };
 

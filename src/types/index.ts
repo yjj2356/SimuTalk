@@ -91,10 +91,13 @@ export interface AppSettings {
   theme: ThemeType;
   geminiApiKey?: string;
   openaiApiKey?: string;
-  defaultAIProvider: AIProvider;
-  geminiModel: string;
-  openaiModel: string;
+  responseModel: string; // 답변 모델 (gemini-xxx 또는 gpt-xxx)
+  translationModel: string; // 번역 모델 (gemini-xxx 또는 gpt-xxx)
   outputLanguage: OutputLanguage; // 출력 언어 설정
+  // 레거시 호환 (deprecated)
+  defaultAIProvider?: AIProvider;
+  geminiModel?: string;
+  openaiModel?: string;
 }
 
 // 전체 앱 상태

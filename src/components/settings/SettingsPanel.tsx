@@ -15,9 +15,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     setTheme,
     setGeminiApiKey,
     setOpenAIApiKey,
-    setDefaultAIProvider,
-    setGeminiModel,
-    setOpenAIModel,
+    setResponseModel,
+    setTranslationModel,
     setOutputLanguage,
   } = useSettingsStore();
 
@@ -130,63 +129,58 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             </div>
           </section>
 
-          {/* 기본 AI 제공자 */}
+          {/* AI 모델 설정 */}
           <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wider">Default AI Provider</h3>
-            <div className="flex gap-3 mb-4">
-              <button
-                onClick={() => setDefaultAIProvider('gemini')}
-                className={`flex-1 py-2.5 px-4 rounded-xl border text-sm font-medium transition-all duration-200 ${
-                  settings.defaultAIProvider === 'gemini'
-                    ? 'bg-black text-white border-black shadow-md'
-                    : 'border-gray-200 hover:bg-gray-50 text-gray-700'
-                }`}
-              >
-                Gemini
-              </button>
-              <button
-                onClick={() => setDefaultAIProvider('openai')}
-                className={`flex-1 py-2.5 px-4 rounded-xl border text-sm font-medium transition-all duration-200 ${
-                  settings.defaultAIProvider === 'openai'
-                    ? 'bg-black text-white border-black shadow-md'
-                    : 'border-gray-200 hover:bg-gray-50 text-gray-700'
-                }`}
-              >
-                OpenAI
-              </button>
-            </div>
-
+            <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wider">AI Models</h3>
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1.5">
-                  Gemini Model
+                  답변 모델 (Response Model)
                 </label>
                 <select
-                  value={settings.geminiModel}
-                  onChange={(e) => setGeminiModel(e.target.value)}
+                  value={settings.responseModel}
+                  onChange={(e) => setResponseModel(e.target.value)}
                   className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200"
                 >
-                  {GEMINI_MODELS.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.name}
-                    </option>
-                  ))}
+                  <optgroup label="Google Gemini">
+                    {GEMINI_MODELS.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="OpenAI">
+                    {OPENAI_MODELS.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1.5">
-                  OpenAI Model
+                  번역 모델 (Translation Model)
                 </label>
                 <select
-                  value={settings.openaiModel}
-                  onChange={(e) => setOpenAIModel(e.target.value)}
+                  value={settings.translationModel}
+                  onChange={(e) => setTranslationModel(e.target.value)}
                   className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200"
                 >
-                  {OPENAI_MODELS.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.name}
-                    </option>
-                  ))}
+                  <optgroup label="Google Gemini">
+                    {GEMINI_MODELS.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="OpenAI">
+                    {OPENAI_MODELS.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
             </div>

@@ -17,6 +17,36 @@ export const OPENAI_MODELS = [
   { id: 'gpt-5.1', name: 'GPT-5.1', api: 'responses' },
 ];
 
+// 모델 ID로 provider 판별
+export function getProviderFromModel(modelId: string): 'gemini' | 'openai' {
+  if (modelId.startsWith('gemini')) {
+    return 'gemini';
+  }
+  return 'openai';
+}
+
+// 통합 API 호출 함수
+export async function callAI(
+  prompt: string,
+  modelId: string,
+  geminiApiKey?: string,
+  openaiApiKey?: string
+): Promise<AIResponse> {
+  const provider = getProviderFromModel(modelId);
+  
+  if (provider === 'gemini') {
+    if (!geminiApiKey) {
+      return { content: '', error: 'Gemini API 키가 설정되지 않았습니다.' };
+    }
+    return callGeminiAPI(prompt, geminiApiKey, modelId);
+  } else {
+    if (!openaiApiKey) {
+      return { content: '', error: 'OpenAI API 키가 설정되지 않았습니다.' };
+    }
+    return callOpenAIAPI(prompt, openaiApiKey, modelId);
+  }
+}
+
 // Gemini API 호출
 export async function callGeminiAPI(
   prompt: string,
@@ -41,7 +71,7 @@ export async function callGeminiAPI(
             temperature: 1.0,
             topK: 40,
             topP: 0.95,
-            maxOutputTokens: 2048,
+            maxOutputTokens: 1024,
           },
         }),
       }
@@ -100,23 +130,19 @@ export async function callOpenAIAPI(
   }
 }
 
-// 번역 함수
+// 번역 함수 (통합)
 export async function translateText(
   text: string,
   targetLanguage: string,
-  apiKey: string,
-  provider: 'gemini' | 'openai',
-  model?: string
+  modelId: string,
+  geminiApiKey?: string,
+  openaiApiKey?: string
 ): Promise<AIResponse> {
-  const prompt = `다음 텍스트를 ${targetLanguage}로 번역해주세요. 번역 결과만 출력하고 다른 설명은 하지 마세요.
+  const prompt = `Translate the following text to ${targetLanguage}. Only output the translation without any explanations.
 
-텍스트: ${text}`;
+Text: ${text}`;
 
-  if (provider === 'gemini') {
-    return callGeminiAPI(prompt, apiKey, model);
-  } else {
-    return callOpenAIAPI(prompt, apiKey, model);
-  }
+  return callAI(prompt, modelId, geminiApiKey, openaiApiKey);
 }
 
 // 출력 언어 -> 언어명 매핑
@@ -174,27 +200,30 @@ ${u.additionalInfo ? `추가 정보: ${u.additionalInfo}` : ''}
     .join('\n');
 
   const targetLanguage = languageNames[outputLanguage] || outputLanguage;
-  const languageInstruction = outputLanguage !== 'korean' 
-    ? `\n\n중요: 반드시 ${targetLanguage}로 답변하세요.`
-    : '';
+  const languageInstruction = `\n\nIMPORTANT: You MUST respond in ${targetLanguage}.`;
 
   const prompt = `
-당신은 롤플레이 채팅에서 캐릭터를 연기하는 AI입니다.
+You are an AI roleplaying as a character in a messenger chat (like KakaoTalk, LINE, or iMessage).
+This is NOT a formal conversation - it's casual messaging between people.
 
-[캐릭터 정보]
+[Character Information]
 ${characterInfo}
 
-[유저 정보]
+[User Information]
 ${userInfo}
 
-[이전 대화]
+[Previous Messages]
 ${conversationHistory}
 
-[유저의 새 메시지]
+[User's New Message]
 ${userMessage}
 
-위 캐릭터로서 자연스럽게 답변해주세요. 캐릭터의 성격과 말투를 반영하여 답변하세요.
-답변만 출력하고, 다른 설명은 하지 마세요.${languageInstruction}
+[IMPORTANT RULES]
+- Respond naturally as this character in a messenger chat context.
+- Reflect the character's personality and speech style.
+- Each line break in your response will be displayed as a SEPARATE message bubble in the UI.
+- Use line breaks strategically to create natural message flow, like real texting.
+- Only output the message content itself, without any explanations or meta-commentary.${languageInstruction}
   `.trim();
 
   return prompt;
@@ -250,23 +279,27 @@ export function buildAutopilotPrompt(
     : (character.fieldProfile?.name || '캐릭터');
 
   const prompt = `
-당신은 롤플레이 채팅을 자동으로 진행하는 AI입니다.
+You are an AI that automatically continues roleplaying conversations in a messenger chat (like KakaoTalk, LINE, or iMessage).
+This is NOT a formal conversation - it's casual messaging between people.
 
-[시나리오]
+[Scenario]
 ${scenario}
 
-[캐릭터 정보]
+[Character Information]
 ${characterInfo}
 
-[유저 캐릭터 정보]
+[User Character Information]
 ${userInfo}
 
-[이전 대화]
+[Previous Messages]
 ${conversationHistory}
 
-지금 "${speakerName}"의 대사를 생성해야 합니다.
-해당 캐릭터의 성격과 말투를 반영하여 자연스러운 대사를 작성하세요.
-대사만 출력하고, 다른 설명은 하지 마세요.
+[IMPORTANT RULES]
+- You need to generate the next message for "${speakerName}".
+- Write a natural message that reflects the character's personality and speech style.
+- Each line break in your response will be displayed as a SEPARATE message bubble in the UI.
+- Use line breaks strategically to create natural message flow, like real texting.
+- Only output the message content itself, without any explanations or meta-commentary.
   `.trim();
 
   return prompt;
@@ -310,19 +343,23 @@ export function buildBranchPrompt(
     : '';
 
   const prompt = `
-당신은 롤플레이 채팅에서 캐릭터를 연기하는 AI입니다.
-같은 상황에서 다른 버전의 응답을 생성해야 합니다.
+You are an AI roleplaying as a character in a messenger chat (like KakaoTalk, LINE, or iMessage).
+You need to generate an alternative version of a response to the same situation.
+This is NOT a formal conversation - it's casual messaging between people.
 
-[캐릭터 정보]
+[Character Information]
 ${characterInfo}
 
-[이전 대화]
+[Previous Messages]
 ${conversationHistory}
 ${existingVersions}
 
-위 캐릭터로서 이전 대화에 이어지는 새로운 응답을 생성하세요.
-기존 버전들과 다른 뉘앙스나 내용으로 작성하세요.
-대사만 출력하고, 다른 설명은 하지 마세요.
+[IMPORTANT RULES]
+- Generate a new response as this character that follows the previous conversation.
+- Write with a different nuance or content from the existing versions.
+- Each line break in your response will be displayed as a SEPARATE message bubble in the UI.
+- Use line breaks strategically to create natural message flow, like real texting.
+- Only output the message content itself, without any explanations or meta-commentary.
   `.trim();
 
   return prompt;
