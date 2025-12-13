@@ -49,6 +49,8 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
     updateBranchTranslation,
     addBranch, 
     setBranchIndex, 
+    setMessagesAfterForBranch,
+    setChatMessages,
     generatingChatId, 
     setGenerating, 
     setChatMode,
@@ -356,9 +358,16 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
   const handleSendSticker = async (sticker: Sticker) => {
     if (!currentChat || !character || isLoading) return;
 
+    // 사용자 프로필 체크
+    const userName = userProfile?.fieldProfile?.name || userProfile?.freeProfile?.split('\n')[0];
+    if (!userName || userName === '나') {
+      alert('스티커를 보내려면 먼저 사용자 프로필에서 이름을 설정해주세요.');
+      return;
+    }
+
     setGenerating(chatId);
 
-    const stickerContextText = `[[${sticker.description}] 이모티콘을 사용자가 보냄]`;
+    const stickerContextText = `[[${sticker.description}] 이모티콘을 ${userName}님이 보냄]`;
     
     addMessage(chatId, {
       chatId,
@@ -675,31 +684,22 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
     if (messageIndex === -1) return;
 
     const editedMessage = currentChat.messages[messageIndex];
-    const nextMessage = currentChat.messages[messageIndex + 1];
-    const hasNextCharacterMessage = !!nextMessage && nextMessage.senderId === character.id;
 
-    const userExistingBranchCount = editedMessage.branches?.length || 0;
-    const characterExistingBranchCount = hasNextCharacterMessage
-      ? (nextMessage.branches?.length || 0)
-      : 0;
+    // 현재 브랜치의 분기점 이후 메시지들을 저장(hello의 downstream을 hello에 보존)
+    const currentSuffix = currentChat.messages.slice(messageIndex + 1);
+    setMessagesAfterForBranch(chatId, messageId, editedMessage.currentBranchIndex || 0, currentSuffix);
 
-    const targetBranchIndex = hasNextCharacterMessage
-      ? (Math.max(userExistingBranchCount, characterExistingBranchCount) + 1)
-      : (userExistingBranchCount + 1);
-
-    // 유저 메시지는 원본을 보존하고 브랜치로 새 버전 추가
-    const userFillersToAdd = Math.max(0, targetBranchIndex - userExistingBranchCount - 1);
-    for (let i = 0; i < userFillersToAdd; i++) {
-      addBranch(chatId, messageId, {
-        content: editedMessage.content,
-        translatedContent: undefined,
-      });
+    // 화면에서 분기점 이후를 제거하고 새 브랜치(hi) 타임라인을 시작
+    if (currentSuffix.length > 0) {
+      removeMessages(chatId, currentSuffix.map((m) => m.id));
     }
+
+    const newBranchIndex = (editedMessage.branches?.length || 0) + 1;
     addBranch(chatId, messageId, {
       content: newContent,
       translatedContent: undefined,
     });
-    setBranchIndex(chatId, messageId, targetBranchIndex);
+    setBranchIndex(chatId, messageId, newBranchIndex);
 
     // 캐릭터 응답 생성/재생성
     setGenerating(chatId);
@@ -742,28 +742,44 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
       ? `오류가 발생했습니다: ${response.error}`
       : (response.content || '');
 
-    if (hasNextCharacterMessage) {
-      const characterFillersToAdd = Math.max(0, targetBranchIndex - characterExistingBranchCount - 1);
-      for (let i = 0; i < characterFillersToAdd; i++) {
-        addBranch(chatId, nextMessage.id, {
-          content: nextMessage.content,
-          translatedContent: undefined,
-        });
+    addMessage(chatId, {
+      chatId,
+      senderId: character.id,
+      content: responseContent,
+    });
+
+    // 최신 상태에서 새 브랜치의 분기점 이후 메시지들을 저장
+    const updatedChat = useChatStore.getState().getChat(chatId);
+    if (updatedChat) {
+      const updatedIndex = updatedChat.messages.findIndex((m) => m.id === messageId);
+      if (updatedIndex !== -1) {
+        const newSuffix = updatedChat.messages.slice(updatedIndex + 1);
+        setMessagesAfterForBranch(chatId, messageId, newBranchIndex, newSuffix);
       }
-      addBranch(chatId, nextMessage.id, {
-        content: responseContent,
-        translatedContent: undefined,
-      });
-      setBranchIndex(chatId, nextMessage.id, targetBranchIndex);
-    } else {
-      addMessage(chatId, {
-        chatId,
-        senderId: character.id,
-        content: responseContent,
-      });
     }
 
     setGenerating(null);
+  };
+
+  const hasStoredDownstream = (message: any) => {
+    if (message?.baseMessagesAfter) return true;
+    if (message?.branches?.some((b: any) => b?.messagesAfter)) return true;
+    return false;
+  };
+
+  const getStoredDownstreamForBranch = (message: any, branchIndex: number): any[] | undefined => {
+    if (!message) return undefined;
+    if (branchIndex === 0) return message.baseMessagesAfter;
+    return message.branches?.[branchIndex - 1]?.messagesAfter;
+  };
+
+  const swapDownstreamForUserBranch = (rootIndex: number, toBranchIndex: number) => {
+    const chat = useChatStore.getState().getChat(chatId);
+    if (!chat) return;
+    const prefix = chat.messages.slice(0, rootIndex + 1);
+    const root = chat.messages[rootIndex];
+    const downstream = getStoredDownstreamForBranch(root, toBranchIndex) || [];
+    setChatMessages(chatId, [...prefix, ...downstream]);
   };
 
   if (!currentChat || !character) {
@@ -903,6 +919,15 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
               const hideBranchNavigation = message.senderId === character.id && prevUserHasBranches;
 
               const handleBranchChange = (branchIndex: number) => {
+                if (message.senderId === 'user' && hasStoredDownstream(message)) {
+                  const currentSuffix = currentChat.messages.slice(index + 1);
+                  setMessagesAfterForBranch(chatId, message.id, message.currentBranchIndex || 0, currentSuffix);
+
+                  setBranchIndex(chatId, message.id, branchIndex);
+                  swapDownstreamForUserBranch(index, branchIndex);
+                  return;
+                }
+
                 setBranchIndex(chatId, message.id, branchIndex);
                 if (message.senderId === 'user' && nextMessage && nextMessage.senderId === character.id) {
                   const maxBranchIndex = nextMessage.branches?.length || 0;
@@ -968,7 +993,6 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
                 theme={currentChat.theme}
                 disabled={isLoading}
                 onSendSticker={handleSendSticker}
-                onOpenStickerManager={() => setShowStickerManager(true)}
               />
             )}
           </div>

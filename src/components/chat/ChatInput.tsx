@@ -11,7 +11,6 @@ interface ImageData {
 interface ChatInputProps {
   onSend: (message: string, imageData?: { data: string; mimeType: string }) => void;
   onSendSticker?: (sticker: Sticker) => void;
-  onOpenStickerManager?: () => void;
   disabled?: boolean;
   placeholder?: string;
   theme?: ThemeType;
@@ -20,7 +19,6 @@ interface ChatInputProps {
 export function ChatInput({
   onSend,
   onSendSticker,
-  onOpenStickerManager,
   disabled = false,
   placeholder = '메시지 입력... (/t 텍스트로 번역)',
   theme = 'basic',
@@ -138,12 +136,6 @@ export function ChatInput({
               }
               setShowStickerPicker(false);
             }}
-            onManage={() => {
-              if (onOpenStickerManager) {
-                onOpenStickerManager();
-              }
-              setShowStickerPicker(false);
-            }}
             onClose={() => setShowStickerPicker(false)}
           />
         )}
@@ -198,12 +190,6 @@ export function ChatInput({
             onSelect={(sticker) => {
               if (onSendSticker) {
                 onSendSticker(sticker);
-              }
-              setShowStickerPicker(false);
-            }}
-            onManage={() => {
-              if (onOpenStickerManager) {
-                onOpenStickerManager();
               }
               setShowStickerPicker(false);
             }}
@@ -276,12 +262,6 @@ export function ChatInput({
               }
               setShowStickerPicker(false);
             }}
-            onManage={() => {
-              if (onOpenStickerManager) {
-                onOpenStickerManager();
-              }
-              setShowStickerPicker(false);
-            }}
             onClose={() => setShowStickerPicker(false)}
           />
         )}
@@ -344,12 +324,6 @@ export function ChatInput({
           onSelect={(sticker) => {
             if (onSendSticker) {
               onSendSticker(sticker);
-            }
-            setShowStickerPicker(false);
-          }}
-          onManage={() => {
-            if (onOpenStickerManager) {
-              onOpenStickerManager();
             }
             setShowStickerPicker(false);
           }}

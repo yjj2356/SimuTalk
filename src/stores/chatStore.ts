@@ -12,10 +12,12 @@ interface ChatState {
   setCurrentChat: (chatId: string | null) => void;
   setGenerating: (chatId: string | null) => void; // 응답 생성 상태 설정
   addMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp' | 'currentBranchIndex'>) => string;
+  setChatMessages: (chatId: string, messages: Message[]) => void;
   updateMessage: (chatId: string, messageId: string, updates: Partial<Message>) => void;
   updateBranchTranslation: (chatId: string, messageId: string, branchIndex: number, translatedContent: string | undefined) => void;
   addBranch: (chatId: string, messageId: string, branch: Omit<MessageBranch, 'id' | 'timestamp'>) => void;
   setBranchIndex: (chatId: string, messageId: string, index: number) => void;
+  setMessagesAfterForBranch: (chatId: string, messageId: string, branchIndex: number, messagesAfter: Message[]) => void;
   setChatMode: (chatId: string, mode: ChatMode) => void;
   setAutopilotScenario: (chatId: string, scenario: string) => void;
   setAutopilotRunning: (chatId: string, running: boolean) => void;
@@ -70,15 +72,48 @@ export const useChatStore = create<ChatState>()(
             chat.id === chatId
               ? {
                   ...chat,
-                  messages: [
-                    ...chat.messages,
-                    {
-                      ...messageData,
-                      id: messageId,
-                      timestamp: Date.now(),
-                      currentBranchIndex: 0,
-                    },
-                  ],
+                  messages: (() => {
+                    const appended: Message[] = [
+                      ...chat.messages,
+                      {
+                        ...messageData,
+                        id: messageId,
+                        timestamp: Date.now(),
+                        currentBranchIndex: 0,
+                      },
+                    ];
+
+                    // 분기점 이후 메시지를 저장해두는(편집 분기 등) 루트가 있으면,
+                    // 현재 보이는 suffix를 해당 루트의 현재 브랜치에 자동 반영해 persistence를 높인다.
+                    let rootIndex = -1;
+                    for (let i = appended.length - 1; i >= 0; i--) {
+                      const m = appended[i];
+                      const hasContinuation =
+                        !!m.baseMessagesAfter ||
+                        !!m.branches?.some((b) => b.messagesAfter);
+                      if (hasContinuation) {
+                        rootIndex = i;
+                        break;
+                      }
+                    }
+
+                    if (rootIndex === -1) return appended;
+
+                    const root = appended[rootIndex];
+                    const suffix = appended.slice(rootIndex + 1);
+                    const rootBranchIndex = root.currentBranchIndex || 0;
+
+                    return appended.map((m, idx) => {
+                      if (idx !== rootIndex) return m;
+                      if (rootBranchIndex === 0) {
+                        return { ...m, baseMessagesAfter: suffix };
+                      }
+                      const branches = (m.branches || []).map((b, bIdx) =>
+                        bIdx === rootBranchIndex - 1 ? { ...b, messagesAfter: suffix } : b
+                      );
+                      return { ...m, branches };
+                    });
+                  })(),
                   updatedAt: Date.now(),
                 }
               : chat
@@ -86,6 +121,18 @@ export const useChatStore = create<ChatState>()(
         }));
         return messageId;
       },
+      setChatMessages: (chatId, messages) =>
+        set((state) => ({
+          chats: state.chats.map((chat) =>
+            chat.id === chatId
+              ? {
+                  ...chat,
+                  messages,
+                  updatedAt: Date.now(),
+                }
+              : chat
+          ),
+        })),
       updateMessage: (chatId, messageId, updates) =>
         set((state) => ({
           chats: state.chats.map((chat) =>
@@ -164,6 +211,27 @@ export const useChatStore = create<ChatState>()(
                 }
               : chat
           ),
+        })),
+      setMessagesAfterForBranch: (chatId, messageId, branchIndex, messagesAfter) =>
+        set((state) => ({
+          chats: state.chats.map((chat) => {
+            if (chat.id !== chatId) return chat;
+
+            return {
+              ...chat,
+              messages: chat.messages.map((msg) => {
+                if (msg.id !== messageId) return msg;
+                if (branchIndex === 0) {
+                  return { ...msg, baseMessagesAfter: messagesAfter };
+                }
+                const branches = (msg.branches || []).map((b, idx) =>
+                  idx === branchIndex - 1 ? { ...b, messagesAfter } : b
+                );
+                return { ...msg, branches };
+              }),
+              updatedAt: Date.now(),
+            };
+          }),
         })),
       setChatMode: (chatId, mode) =>
         set((state) => ({

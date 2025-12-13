@@ -96,6 +96,8 @@ export interface Message {
   translatedContent?: string; // 번역된 내용
   branches?: MessageBranch[]; // 분기 메시지들
   currentBranchIndex: number; // 현재 선택된 분기 인덱스 (0 = 원본)
+  // 분기점 이후(다음 메시지들) 저장용 - 특정 분기(특히 메시지 편집)에서 사용
+  baseMessagesAfter?: Message[];
   imageData?: string; // Base64 인코딩된 이미지 데이터
   imageMimeType?: string; // 이미지 MIME 타입 (image/jpeg, image/png, etc.)
   isSticker?: boolean; // 스티커 메시지 여부 (이모티콘)
@@ -186,6 +188,8 @@ export interface MessageBranch {
   content: string;
   translatedContent?: string;
   timestamp: number;
+  // 이 브랜치를 선택했을 때 보여줄 분기점 이후 메시지들
+  messagesAfter?: Message[];
 }
 
 // 이모티콘/스티커

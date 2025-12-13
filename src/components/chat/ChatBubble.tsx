@@ -76,6 +76,15 @@ export function ChatBubble({
     ? translatedContent
     : branches?.[currentBranchIndex - 1]?.translatedContent;
 
+  // 과거 데이터/브랜치 등에서 isSticker 플래그가 누락된 경우를 보정
+  // (스티커 컨텍스트 텍스트 + 이미지가 같이 있는 메시지는 텍스트를 숨기고 이미지로만 보여야 함)
+  const effectiveIsStickerMessage =
+    Boolean(isSticker) ||
+    (Boolean(imageData && imageMimeType) &&
+      displayContent.trim().startsWith('[[') &&
+      displayContent.includes('이모티콘을') &&
+      displayContent.trim().endsWith(']'));
+
   const totalVersions = 1 + (branches?.length || 0);
   const hasBranches = totalVersions > 1;
 
@@ -417,17 +426,17 @@ export function ChatBubble({
       <div 
         className="overflow-hidden"
         style={{ 
-          borderRadius: isSticker ? '0' : borderRadius,
-          maxWidth: isSticker ? '100px' : '220px',
-          background: isSticker ? 'transparent' : undefined,
+          borderRadius: effectiveIsStickerMessage ? '0' : borderRadius,
+          maxWidth: effectiveIsStickerMessage ? '100px' : '220px',
+          background: effectiveIsStickerMessage ? 'transparent' : undefined,
         }}
       >
         <img 
           src={`data:${imageMimeType};base64,${imageData}`}
-          alt={isSticker ? "스티커" : "첨부 이미지"}
-          className={`max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity ${isSticker ? 'hover:scale-105' : ''}`}
+          alt={effectiveIsStickerMessage ? "스티커" : "첨부 이미지"}
+          className={`max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity ${effectiveIsStickerMessage ? 'hover:scale-105' : ''}`}
           style={{ 
-            maxHeight: isSticker ? '100px' : '200px',
+            maxHeight: effectiveIsStickerMessage ? '100px' : '200px',
             objectFit: 'contain',
           }}
           onClick={() => {
@@ -470,7 +479,7 @@ export function ChatBubble({
                   <ImageBubble borderRadius={isUser ? '18px 18px 4px 18px' : '18px 18px 18px 4px'} />
                   
                   {/* 스티커가 아닐 때만 텍스트 말풍선 표시 */}
-                  {!isSticker && messageLines.map((line, idx) => {
+                  {!effectiveIsStickerMessage && messageLines.map((line, idx) => {
                     const isFirst = idx === 0;
                     const isLast = idx === messageLines.length - 1;
                     
@@ -602,7 +611,7 @@ export function ChatBubble({
                   <ImageBubble borderRadius={themeConfig.chatBubble.borderRadius} />
                   
                   {/* 스티커가 아닐 때만 텍스트 말풍선 표시 */}
-                  {!isSticker && messageLines.map((line, idx) => {
+                  {!effectiveIsStickerMessage && messageLines.map((line, idx) => {
                     const isFirst = idx === 0;
                     const showTail = isFirst && isFirstInGroup && themeConfig.chatBubble.tailUser && themeConfig.chatBubble.tailPartner;
                     
@@ -725,7 +734,7 @@ export function ChatBubble({
                 <ImageBubble borderRadius="0.75rem" />
                 
                 {/* 스티커가 아닐 때만 텍스트 말풍선 표시 */}
-                {!isSticker && messageLines.map((line, idx) => (
+                {!effectiveIsStickerMessage && messageLines.map((line, idx) => (
                   <div 
                     key={idx}
                     className={`px-4 py-2.5 rounded-xl inline-block break-words ${idx === 0 && isUser ? 'rounded-tr-sm' : ''} ${idx === 0 && !isUser ? 'rounded-tl-sm' : ''} ${isUser ? themeConfig.chatBubble.user : themeConfig.chatBubble.partner} ${themeConfig.chatBubble.fontSize} ${themeConfig.chatBubble.lineHeight}`}

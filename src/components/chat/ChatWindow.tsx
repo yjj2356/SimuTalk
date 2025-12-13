@@ -35,7 +35,7 @@ export function ChatWindow() {
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [showStickerManager, setShowStickerManager] = useState(false);
   const { settings } = useSettingsStore();
-  const { chats, currentChatId, addMessage, updateMessage, updateBranchTranslation, addBranch, setBranchIndex, addMemorySummary, removeMemorySummaries, removeMessages, generatingChatId, setGenerating } = useChatStore();
+  const { chats, currentChatId, addMessage, updateMessage, updateBranchTranslation, addBranch, setBranchIndex, setMessagesAfterForBranch, setChatMessages, addMemorySummary, removeMemorySummaries, removeMessages, generatingChatId, setGenerating } = useChatStore();
   const { getCharacter } = useCharacterStore();
   const { getCurrentUserProfile } = useUserStore();
   const { stickers } = useStickerStore();
@@ -580,10 +580,17 @@ export function ChatWindow() {
   const handleSendSticker = async (sticker: Sticker) => {
     if (!currentChat || !character || isLoading) return;
 
+    // 사용자 프로필 체크
+    const userName = userProfile?.fieldProfile?.name || userProfile?.freeProfile?.split('\n')[0];
+    if (!userName || userName === '나') {
+      alert('스티커를 보내려면 먼저 사용자 프로필에서 이름을 설정해주세요.');
+      return;
+    }
+
     setGenerating(currentChatId!);
 
     // 스티커 메시지 추가 (이미지로 표시, 컨텍스트에 설명 포함)
-    const stickerContextText = `[[${sticker.description}] 이모티콘을 사용자가 보냄]`;
+    const stickerContextText = `[[${sticker.description}] 이모티콘을 ${userName}님이 보냄]`;
     
     addMessage(currentChat.id, {
       chatId: currentChat.id,
@@ -688,35 +695,23 @@ export function ChatWindow() {
 
     const editedMessage = currentChat.messages[messageIndex];
 
-    const nextMessage = currentChat.messages[messageIndex + 1];
-    const hasNextCharacterMessage = !!nextMessage && nextMessage.senderId === character.id;
+    // 현재 선택된 브랜치(예: hello)의 "이후 메시지들"을 해당 브랜치에 저장
+    const currentSuffix = currentChat.messages.slice(messageIndex + 1);
+    setMessagesAfterForBranch(currentChat.id, messageId, editedMessage.currentBranchIndex || 0, currentSuffix);
 
-    const userExistingBranchCount = editedMessage.branches?.length || 0;
-    const characterExistingBranchCount = hasNextCharacterMessage
-      ? (nextMessage.branches?.length || 0)
-      : 0;
-
-    // 유저 수정으로 시작된 리롤은 "유저 메시지"에 브랜치 네비게이션이 생기도록
-    // 유저/캐릭터 브랜치 인덱스를 가능한 동일하게 맞춘다.
-    const targetBranchIndex = hasNextCharacterMessage
-      ? (Math.max(userExistingBranchCount, characterExistingBranchCount) + 1)
-      : (userExistingBranchCount + 1);
-
-    // 수정된 유저 메시지는 원본을 보존하고 "브랜치"로 추가
-    const userFillersToAdd = Math.max(0, targetBranchIndex - userExistingBranchCount - 1);
-    for (let i = 0; i < userFillersToAdd; i++) {
-      addBranch(currentChat.id, messageId, {
-        content: editedMessage.content,
-        translatedContent: undefined,
-      });
+    // 분기점 이후를 화면에서 제거하고, 새 브랜치(예: hi) 타임라인을 시작
+    if (currentSuffix.length > 0) {
+      removeMessages(currentChat.id, currentSuffix.map((m) => m.id));
     }
+
+    const newBranchIndex = (editedMessage.branches?.length || 0) + 1;
     addBranch(currentChat.id, messageId, {
       content: newContent,
       translatedContent: undefined,
     });
-    setBranchIndex(currentChat.id, messageId, targetBranchIndex);
+    setBranchIndex(currentChat.id, messageId, newBranchIndex);
 
-    // AI 응답 재생성은 캐릭터 응답 유무와 무관하게 시도
+    // AI 응답 재생성
     setGenerating(currentChatId!);
 
     // 수정된 메시지까지의 대화 내역으로 프롬프트 생성
@@ -759,31 +754,44 @@ export function ChatWindow() {
       ? `오류가 발생했습니다: ${response.error}`
       : (response.content || '');
 
-    // 수정된 유저 메시지 다음이 캐릭터 응답이면 기존 메시지에 브랜치를 추가하고 이동
-    if (hasNextCharacterMessage) {
-      const characterFillersToAdd = Math.max(0, targetBranchIndex - characterExistingBranchCount - 1);
-      for (let i = 0; i < characterFillersToAdd; i++) {
-        addBranch(currentChat.id, nextMessage.id, {
-          content: nextMessage.content,
-          translatedContent: undefined,
-        });
-      }
-      addBranch(currentChat.id, nextMessage.id, {
-        content: responseContent,
-        translatedContent: undefined,
-      });
+    addMessage(currentChat.id, {
+      chatId: currentChat.id,
+      senderId: character.id,
+      content: responseContent,
+    });
 
-      setBranchIndex(currentChat.id, nextMessage.id, targetBranchIndex);
-    } else {
-      // 캐릭터 응답이 아직 없으면 새 메시지로 추가
-      addMessage(currentChat.id, {
-        chatId: currentChat.id,
-        senderId: character.id,
-        content: responseContent,
-      });
+    // 최신 상태에서 새 브랜치의 분기점 이후 메시지들을 저장
+    const updatedChat = useChatStore.getState().getChat(currentChat.id);
+    if (updatedChat) {
+      const updatedIndex = updatedChat.messages.findIndex((m) => m.id === messageId);
+      if (updatedIndex !== -1) {
+        const newSuffix = updatedChat.messages.slice(updatedIndex + 1);
+        setMessagesAfterForBranch(currentChat.id, messageId, newBranchIndex, newSuffix);
+      }
     }
 
     setGenerating(null);
+  };
+
+  const hasStoredDownstream = (message: any) => {
+    if (message?.baseMessagesAfter) return true;
+    if (message?.branches?.some((b: any) => b?.messagesAfter)) return true;
+    return false;
+  };
+
+  const getStoredDownstreamForBranch = (message: any, branchIndex: number): any[] | undefined => {
+    if (!message) return undefined;
+    if (branchIndex === 0) return message.baseMessagesAfter;
+    return message.branches?.[branchIndex - 1]?.messagesAfter;
+  };
+
+  const swapDownstreamForUserBranch = (chatId: string, rootIndex: number, toBranchIndex: number) => {
+    const chat = useChatStore.getState().getChat(chatId);
+    if (!chat) return;
+    const prefix = chat.messages.slice(0, rootIndex + 1);
+    const root = chat.messages[rootIndex];
+    const downstream = getStoredDownstreamForBranch(root, toBranchIndex) || [];
+    setChatMessages(chatId, [...prefix, ...downstream]);
   };
 
   if (!currentChat || !character) {
@@ -849,9 +857,20 @@ export function ChatWindow() {
             const hideBranchNavigation = message.senderId === character.id && prevUserHasBranches;
 
             const handleBranchChange = (branchIndex: number) => {
+              // 메시지 편집으로 인해 "분기점 이후"가 브랜치별로 저장된 유저 메시지라면,
+              // 브랜치 변경 시 전체 downstream을 교체한다.
+              if (message.senderId === 'user' && hasStoredDownstream(message)) {
+                const currentSuffix = currentChat.messages.slice(index + 1);
+                setMessagesAfterForBranch(currentChat.id, message.id, message.currentBranchIndex || 0, currentSuffix);
+
+                setBranchIndex(currentChat.id, message.id, branchIndex);
+                swapDownstreamForUserBranch(currentChat.id, index, branchIndex);
+                return;
+              }
+
               setBranchIndex(currentChat.id, message.id, branchIndex);
 
-              // 유저 메시지에서 브랜치를 바꾸면 바로 다음 캐릭터 메시지도 같이 바뀌도록 동기화
+              // 기존 로직: 유저 메시지 브랜치 변경 시 바로 다음 캐릭터 메시지도 동기화
               if (message.senderId === 'user' && nextMessage && nextMessage.senderId === character.id) {
                 const maxBranchIndex = nextMessage.branches?.length || 0;
                 setBranchIndex(currentChat.id, nextMessage.id, Math.min(branchIndex, maxBranchIndex));
@@ -907,7 +926,6 @@ export function ChatWindow() {
             disabled={isLoading} 
             theme={currentChat.theme}
             onSendSticker={handleSendSticker}
-            onOpenStickerManager={() => setShowStickerManager(true)}
           />
         )}
       </div>
@@ -965,6 +983,15 @@ export function ChatWindow() {
             const hideBranchNavigation = message.senderId === character.id && prevUserHasBranches;
 
             const handleBranchChange = (branchIndex: number) => {
+              if (message.senderId === 'user' && hasStoredDownstream(message)) {
+                const currentSuffix = currentChat.messages.slice(index + 1);
+                setMessagesAfterForBranch(currentChat.id, message.id, message.currentBranchIndex || 0, currentSuffix);
+
+                setBranchIndex(currentChat.id, message.id, branchIndex);
+                swapDownstreamForUserBranch(currentChat.id, index, branchIndex);
+                return;
+              }
+
               setBranchIndex(currentChat.id, message.id, branchIndex);
               if (message.senderId === 'user' && nextMessage && nextMessage.senderId === character.id) {
                 const maxBranchIndex = nextMessage.branches?.length || 0;
@@ -1021,7 +1048,6 @@ export function ChatWindow() {
             disabled={isLoading} 
             theme={currentChat.theme}
             onSendSticker={handleSendSticker}
-            onOpenStickerManager={() => setShowStickerManager(true)}
           />
         )}
       </div>
@@ -1123,6 +1149,15 @@ export function ChatWindow() {
             const hideBranchNavigation = message.senderId === character.id && prevUserHasBranches;
 
             const handleBranchChange = (branchIndex: number) => {
+              if (message.senderId === 'user' && hasStoredDownstream(message)) {
+                const currentSuffix = currentChat.messages.slice(index + 1);
+                setMessagesAfterForBranch(currentChat.id, message.id, message.currentBranchIndex || 0, currentSuffix);
+
+                setBranchIndex(currentChat.id, message.id, branchIndex);
+                swapDownstreamForUserBranch(currentChat.id, index, branchIndex);
+                return;
+              }
+
               setBranchIndex(currentChat.id, message.id, branchIndex);
               if (message.senderId === 'user' && nextMessage && nextMessage.senderId === character.id) {
                 const maxBranchIndex = nextMessage.branches?.length || 0;
@@ -1180,7 +1215,6 @@ export function ChatWindow() {
             disabled={isLoading} 
             theme={currentChat.theme}
             onSendSticker={handleSendSticker}
-            onOpenStickerManager={() => setShowStickerManager(true)}
           />
         )}
       </div>
@@ -1240,6 +1274,15 @@ export function ChatWindow() {
           const hideBranchNavigation = message.senderId === character.id && prevUserHasBranches;
 
           const handleBranchChange = (branchIndex: number) => {
+            if (message.senderId === 'user' && hasStoredDownstream(message)) {
+              const currentSuffix = currentChat.messages.slice(index + 1);
+              setMessagesAfterForBranch(currentChat.id, message.id, message.currentBranchIndex || 0, currentSuffix);
+
+              setBranchIndex(currentChat.id, message.id, branchIndex);
+              swapDownstreamForUserBranch(currentChat.id, index, branchIndex);
+              return;
+            }
+
             setBranchIndex(currentChat.id, message.id, branchIndex);
             if (message.senderId === 'user' && nextMessage && nextMessage.senderId === character.id) {
               const maxBranchIndex = nextMessage.branches?.length || 0;
@@ -1296,7 +1339,6 @@ export function ChatWindow() {
           disabled={isLoading} 
           theme={currentChat.theme}
           onSendSticker={handleSendSticker}
-          onOpenStickerManager={() => setShowStickerManager(true)}
         />
       )}
 
