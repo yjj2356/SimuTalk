@@ -74,4 +74,4 @@ npm run electron:build:win
 
 ## 라이선스
 
-MIT
+CC0-1.0 license
