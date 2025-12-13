@@ -4,12 +4,21 @@ import { ChatBubble } from '@/components/chat/ChatBubble';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { useChatStore, useCharacterStore, useSettingsStore, useUserStore } from '@/stores';
 import { getThemeConfig } from '@/utils/theme';
+import { OutputLanguage } from '@/types';
 import { 
   callAI, 
   buildCharacterPrompt, 
   buildBranchPrompt, 
   translateText,
 } from '@/services/aiService';
+
+// 출력 언어 -> 언어명 매핑
+const languageNames: Record<OutputLanguage, string> = {
+  korean: '한국어',
+  english: 'English',
+  japanese: '日本語',
+  chinese: '中文',
+};
 
 interface PopupViewProps {
   chatId: string;
@@ -93,6 +102,86 @@ export function PopupView({ chatId }: PopupViewProps) {
   const handleSendMessage = async (content: string, imageData?: { data: string; mimeType: string }) => {
     if (!currentChat || !character || isLoading) return;
 
+    // /t 명령어 처리: 번역 후 AI 응답도 생성
+    if (content.startsWith('/t ')) {
+      const textToTranslate = content.slice(3);
+      if (!textToTranslate.trim()) return;
+
+      setGenerating(chatId);
+
+      const chatOutputLanguage = currentChat.outputLanguage || 'korean';
+      const targetLanguage = languageNames[chatOutputLanguage] || chatOutputLanguage;
+
+      const translation = await translateText(
+        textToTranslate,
+        targetLanguage,
+        settings.translationModel,
+        settings.geminiApiKey,
+        settings.openaiApiKey
+      );
+
+      if (translation.error) {
+        alert(`번역 오류: ${translation.error}`);
+        setGenerating(null);
+        return;
+      }
+
+      // 번역 결과를 유저 메시지로 추가 (원문은 translatedContent로 표시)
+      addMessage(chatId, {
+        chatId,
+        senderId: 'user',
+        content: translation.content,
+        translatedContent: textToTranslate,
+        imageData: imageData?.data,
+        imageMimeType: imageData?.mimeType,
+      });
+
+      const currentAppTime = getCurrentChatTime();
+      const currentTimeString = currentAppTime.toLocaleTimeString('ko-KR', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+
+      const outputLanguage = currentChat.outputLanguage || 'korean';
+      const prompt = buildCharacterPrompt(
+        character,
+        userProfile,
+        currentChat.messages,
+        translation.content,
+        outputLanguage,
+        currentTimeString,
+        currentChat.theme,
+        currentChat.memorySummaries
+      );
+
+      const finalPrompt = imageData 
+        ? `${prompt}\n\n[IMPORTANT: The user has sent an image along with this message. You MUST look at and acknowledge the image in your response. Describe what you see in the image or react to it naturally as the character would.]`
+        : prompt;
+
+      const response = await callAI(
+        finalPrompt,
+        settings.responseModel,
+        settings.geminiApiKey,
+        settings.openaiApiKey,
+        imageData ? { data: imageData.data, mimeType: imageData.mimeType } : undefined,
+        settings.gptFlexTier
+      );
+
+      if (!response.error && response.content) {
+        addMessage(chatId, {
+          chatId,
+          senderId: character.id,
+          content: response.content,
+        });
+      } else if (response.error) {
+        alert(`응답 생성 오류: ${response.error}`);
+      }
+
+      setGenerating(null);
+      return;
+    }
+
     // 유저 메시지 추가
     addMessage(chatId, {
       chatId,
@@ -135,7 +224,7 @@ export function PopupView({ chatId }: PopupViewProps) {
       settings.responseModel,
       settings.geminiApiKey,
       settings.openaiApiKey,
-      undefined,
+      imageData ? { data: imageData.data, mimeType: imageData.mimeType } : undefined,
       settings.gptFlexTier
     );
 
@@ -262,12 +351,16 @@ export function PopupView({ chatId }: PopupViewProps) {
       settings.gptFlexTier
     );
 
-    if (!response.error && response.content) {
+    const responseContent = response.error
+      ? `오류가 발생했습니다: ${response.error}`
+      : (response.content || '');
+
+    if (responseContent) {
       addBranch(chatId, messageId, {
-        content: response.content,
+        content: responseContent,
+        translatedContent: undefined,
       });
 
-      // 새로 생성된 분기로 이동
       const newIndex = (message.branches?.length || 0) + 1;
       setBranchIndex(chatId, messageId, newIndex);
     }
@@ -278,55 +371,94 @@ export function PopupView({ chatId }: PopupViewProps) {
   // 메시지 수정 핸들러
   const handleEditMessage = async (messageId: string, newContent: string) => {
     if (!currentChat || !character || isLoading) return;
-    
-    updateMessage(chatId, messageId, { content: newContent });
-    
+
     const messageIndex = currentChat.messages.findIndex(m => m.id === messageId);
     if (messageIndex === -1) return;
-    
+
+    const editedMessage = currentChat.messages[messageIndex];
     const nextMessage = currentChat.messages[messageIndex + 1];
-    if (nextMessage && nextMessage.senderId === character.id) {
-      setGenerating(chatId);
-      
-      const messagesUpToEdit = currentChat.messages.slice(0, messageIndex);
-      const currentAppTime = getCurrentChatTime();
-      const currentTimeString = currentAppTime.toLocaleTimeString('ko-KR', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
+    const hasNextCharacterMessage = !!nextMessage && nextMessage.senderId === character.id;
+
+    const userExistingBranchCount = editedMessage.branches?.length || 0;
+    const characterExistingBranchCount = hasNextCharacterMessage
+      ? (nextMessage.branches?.length || 0)
+      : 0;
+
+    const targetBranchIndex = hasNextCharacterMessage
+      ? (Math.max(userExistingBranchCount, characterExistingBranchCount) + 1)
+      : (userExistingBranchCount + 1);
+
+    // 유저 메시지: 브랜치로 새 버전 추가
+    const userFillersToAdd = Math.max(0, targetBranchIndex - userExistingBranchCount - 1);
+    for (let i = 0; i < userFillersToAdd; i++) {
+      addBranch(chatId, messageId, {
+        content: editedMessage.content,
+        translatedContent: undefined,
       });
-      const outputLanguage = currentChat.outputLanguage || 'korean';
-      
-      const prompt = buildCharacterPrompt(
-        character,
-        userProfile,
-        messagesUpToEdit,
-        newContent,
-        outputLanguage,
-        currentTimeString,
-        currentChat.theme
-      );
+    }
+    addBranch(chatId, messageId, {
+      content: newContent,
+      translatedContent: undefined,
+    });
+    setBranchIndex(chatId, messageId, targetBranchIndex);
 
-      const response = await callAI(
-        prompt,
-        settings.responseModel,
-        settings.geminiApiKey,
-        settings.openaiApiKey,
-        undefined,
-        settings.gptFlexTier
-      );
+    // 캐릭터 응답 생성/재생성
+    setGenerating(chatId);
 
-      if (!response.error) {
-        updateMessage(chatId, nextMessage.id, {
-          content: response.content,
+    const messagesUpToEdit = currentChat.messages.slice(0, messageIndex);
+    const currentAppTime = getCurrentChatTime();
+    const currentTimeString = currentAppTime.toLocaleTimeString('ko-KR', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+    const outputLanguage = currentChat.outputLanguage || 'korean';
+
+    const prompt = buildCharacterPrompt(
+      character,
+      userProfile,
+      messagesUpToEdit,
+      newContent,
+      outputLanguage,
+      currentTimeString,
+      currentChat.theme
+    );
+
+    const response = await callAI(
+      prompt,
+      settings.responseModel,
+      settings.geminiApiKey,
+      settings.openaiApiKey,
+      undefined,
+      settings.gptFlexTier
+    );
+
+    const responseContent = response.error
+      ? `오류가 발생했습니다: ${response.error}`
+      : (response.content || '');
+
+    if (hasNextCharacterMessage) {
+      const characterFillersToAdd = Math.max(0, targetBranchIndex - characterExistingBranchCount - 1);
+      for (let i = 0; i < characterFillersToAdd; i++) {
+        addBranch(chatId, nextMessage.id, {
+          content: nextMessage.content,
           translatedContent: undefined,
-          branches: undefined,
-          currentBranchIndex: 0
         });
       }
-      
-      setGenerating(null);
+      addBranch(chatId, nextMessage.id, {
+        content: responseContent,
+        translatedContent: undefined,
+      });
+      setBranchIndex(chatId, nextMessage.id, targetBranchIndex);
+    } else {
+      addMessage(chatId, {
+        chatId,
+        senderId: character.id,
+        content: responseContent,
+      });
     }
+
+    setGenerating(null);
   };
 
   if (!currentChat || !character) {
@@ -368,7 +500,19 @@ export function PopupView({ chatId }: PopupViewProps) {
           <div className="flex-1 overflow-y-auto pb-[10px] px-2">
             {currentChat.messages.map((message, index) => {
               const prevMessage = index > 0 ? currentChat.messages[index - 1] : null;
+              const nextMessage = index < currentChat.messages.length - 1 ? currentChat.messages[index + 1] : null;
               const isFirstInGroup = !prevMessage || prevMessage.senderId !== message.senderId;
+
+              const prevUserHasBranches = !!prevMessage && prevMessage.senderId === 'user' && ((prevMessage.branches?.length || 0) > 0);
+              const hideBranchNavigation = message.senderId === character.id && prevUserHasBranches;
+
+              const handleBranchChange = (branchIndex: number) => {
+                setBranchIndex(chatId, message.id, branchIndex);
+                if (message.senderId === 'user' && nextMessage && nextMessage.senderId === character.id) {
+                  const maxBranchIndex = nextMessage.branches?.length || 0;
+                  setBranchIndex(chatId, nextMessage.id, Math.min(branchIndex, maxBranchIndex));
+                }
+              };
               
               return (
                 <ChatBubble
@@ -380,8 +524,9 @@ export function PopupView({ chatId }: PopupViewProps) {
                   timestamp={message.timestamp}
                   branches={message.branches}
                   currentBranchIndex={message.currentBranchIndex}
-                  onBranchChange={(branchIndex) => setBranchIndex(chatId, message.id, branchIndex)}
+                  onBranchChange={handleBranchChange}
                   onGenerateBranch={() => handleGenerateBranch(message.id, index)}
+                  hideBranchNavigation={hideBranchNavigation}
                   isLastCharacterMessage={message.id === lastCharacterMessageId}
                   onTranslate={() => handleTranslateMessage(message.id)}
                   onRetranslate={() => handleRetranslateMessage(message.id)}
@@ -447,7 +592,19 @@ export function PopupView({ chatId }: PopupViewProps) {
           <div className="flex-1 overflow-y-auto pb-[10px] px-2">
             {currentChat.messages.map((message, index) => {
               const prevMessage = index > 0 ? currentChat.messages[index - 1] : null;
+              const nextMessage = index < currentChat.messages.length - 1 ? currentChat.messages[index + 1] : null;
               const isFirstInGroup = !prevMessage || prevMessage.senderId !== message.senderId;
+
+              const prevUserHasBranches = !!prevMessage && prevMessage.senderId === 'user' && ((prevMessage.branches?.length || 0) > 0);
+              const hideBranchNavigation = message.senderId === character.id && prevUserHasBranches;
+
+              const handleBranchChange = (branchIndex: number) => {
+                setBranchIndex(chatId, message.id, branchIndex);
+                if (message.senderId === 'user' && nextMessage && nextMessage.senderId === character.id) {
+                  const maxBranchIndex = nextMessage.branches?.length || 0;
+                  setBranchIndex(chatId, nextMessage.id, Math.min(branchIndex, maxBranchIndex));
+                }
+              };
               
               return (
                 <ChatBubble
@@ -459,8 +616,9 @@ export function PopupView({ chatId }: PopupViewProps) {
                   timestamp={message.timestamp}
                   branches={message.branches}
                   currentBranchIndex={message.currentBranchIndex}
-                  onBranchChange={(branchIndex) => setBranchIndex(chatId, message.id, branchIndex)}
+                  onBranchChange={handleBranchChange}
                   onGenerateBranch={() => handleGenerateBranch(message.id, index)}
+                  hideBranchNavigation={hideBranchNavigation}
                   isLastCharacterMessage={message.id === lastCharacterMessageId}
                   onTranslate={() => handleTranslateMessage(message.id)}
                   onRetranslate={() => handleRetranslateMessage(message.id)}
@@ -566,8 +724,20 @@ export function PopupView({ chatId }: PopupViewProps) {
             )}
             
             {currentChat.messages.map((message, index) => {
+              const prevMessage = index > 0 ? currentChat.messages[index - 1] : null;
               const nextMessage = index < currentChat.messages.length - 1 ? currentChat.messages[index + 1] : null;
               const isLastInGroup = !nextMessage || nextMessage.senderId !== message.senderId;
+
+              const prevUserHasBranches = !!prevMessage && prevMessage.senderId === 'user' && ((prevMessage.branches?.length || 0) > 0);
+              const hideBranchNavigation = message.senderId === character.id && prevUserHasBranches;
+
+              const handleBranchChange = (branchIndex: number) => {
+                setBranchIndex(chatId, message.id, branchIndex);
+                if (message.senderId === 'user' && nextMessage && nextMessage.senderId === character.id) {
+                  const maxBranchIndex = nextMessage.branches?.length || 0;
+                  setBranchIndex(chatId, nextMessage.id, Math.min(branchIndex, maxBranchIndex));
+                }
+              };
               
               return (
                 <ChatBubble
@@ -579,8 +749,9 @@ export function PopupView({ chatId }: PopupViewProps) {
                   timestamp={message.timestamp}
                   branches={message.branches}
                   currentBranchIndex={message.currentBranchIndex}
-                  onBranchChange={(branchIndex) => setBranchIndex(chatId, message.id, branchIndex)}
+                  onBranchChange={handleBranchChange}
                   onGenerateBranch={() => handleGenerateBranch(message.id, index)}
+                  hideBranchNavigation={hideBranchNavigation}
                   isLastCharacterMessage={message.id === lastCharacterMessageId}
                   onTranslate={() => handleTranslateMessage(message.id)}
                   onRetranslate={() => handleRetranslateMessage(message.id)}
@@ -653,7 +824,19 @@ export function PopupView({ chatId }: PopupViewProps) {
         <div className={`flex-1 overflow-y-auto p-4 ${themeConfig.background}`}>
           {currentChat.messages.map((message, index) => {
             const prevMessage = index > 0 ? currentChat.messages[index - 1] : null;
+            const nextMessage = index < currentChat.messages.length - 1 ? currentChat.messages[index + 1] : null;
             const isFirstInGroup = !prevMessage || prevMessage.senderId !== message.senderId;
+
+            const prevUserHasBranches = !!prevMessage && prevMessage.senderId === 'user' && ((prevMessage.branches?.length || 0) > 0);
+            const hideBranchNavigation = message.senderId === character.id && prevUserHasBranches;
+
+            const handleBranchChange = (branchIndex: number) => {
+              setBranchIndex(chatId, message.id, branchIndex);
+              if (message.senderId === 'user' && nextMessage && nextMessage.senderId === character.id) {
+                const maxBranchIndex = nextMessage.branches?.length || 0;
+                setBranchIndex(chatId, nextMessage.id, Math.min(branchIndex, maxBranchIndex));
+              }
+            };
             
             return (
               <ChatBubble
@@ -665,8 +848,9 @@ export function PopupView({ chatId }: PopupViewProps) {
                 timestamp={message.timestamp}
                 branches={message.branches}
                 currentBranchIndex={message.currentBranchIndex}
-                onBranchChange={(branchIndex) => setBranchIndex(chatId, message.id, branchIndex)}
+                onBranchChange={handleBranchChange}
                 onGenerateBranch={() => handleGenerateBranch(message.id, index)}
+                hideBranchNavigation={hideBranchNavigation}
                 isLastCharacterMessage={message.id === lastCharacterMessageId}
                 onTranslate={() => handleTranslateMessage(message.id)}
                 onRetranslate={() => handleRetranslateMessage(message.id)}

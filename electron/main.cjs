@@ -1,11 +1,33 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 
 // 개발 모드 여부 확인
 const isDev = !app.isPackaged;
 
+// 자동 업데이트 설정
+autoUpdater.autoDownload = false; // 수동 다운로드
+autoUpdater.autoInstallOnAppQuit = true; // 앱 종료 시 자동 설치
+
 let mainWindow;
 let popupWindows = new Map(); // chatId -> BrowserWindow
+
+function broadcastToAllWindows(channel, payload, senderWebContents) {
+  const senderId = senderWebContents?.id;
+  const mainId = mainWindow?.webContents?.id;
+  const popupIds = Array.from(popupWindows.values())
+    .filter((w) => w && !w.isDestroyed())
+    .map((w) => w.webContents.id);
+
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents !== senderWebContents) {
+    mainWindow.webContents.send(channel, payload);
+  }
+  popupWindows.forEach((win) => {
+    if (win && !win.isDestroyed() && win.webContents !== senderWebContents) {
+      win.webContents.send(channel, payload);
+    }
+  });
+}
 
 function createWindow() {
   // 아이콘 경로 설정
@@ -118,6 +140,14 @@ function createPopupWindow(chatId) {
 app.whenReady().then(() => {
   createWindow();
 
+  // 프로덕션 모드에서만 업데이트 확인
+  if (!isDev) {
+    // 앱 시작 5초 후 업데이트 확인
+    setTimeout(() => {
+      autoUpdater.checkForUpdates();
+    }, 5000);
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -194,4 +224,55 @@ ipcMain.handle('toggle-always-on-top', () => {
 
 ipcMain.handle('is-always-on-top', () => {
   return mainWindow ? mainWindow.isAlwaysOnTop() : false;
+});
+
+// Renderer 간 상태 동기화 (chats/settings)
+ipcMain.on('sync-chats', (event, chats) => {
+  const count = Array.isArray(chats) ? chats.length : 'n/a';
+  broadcastToAllWindows('sync-chats', chats, event.sender);
+});
+
+ipcMain.on('sync-settings', (event, settings) => {
+  broadcastToAllWindows('sync-settings', settings, event.sender);
+});
+
+// 자동 업데이트 이벤트 처리
+autoUpdater.on('update-available', (info) => {
+  console.log('업데이트 사용 가능:', info.version);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-available', info);
+  }
+});
+
+autoUpdater.on('update-not-available', (info) => {
+  console.log('최신 버전 사용 중');
+});
+
+autoUpdater.on('error', (err) => {
+  console.error('업데이트 오류:', err);
+});
+
+autoUpdater.on('download-progress', (progress) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('download-progress', progress);
+  }
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  console.log('업데이트 다운로드 완료');
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-downloaded', info);
+  }
+});
+
+// 업데이트 다운로드 시작
+ipcMain.handle('download-update', () => {
+  autoUpdater.downloadUpdate();
+  return true;
+});
+
+// 업데이트 설치 및 재시작
+ipcMain.handle('install-update', () => {
+  autoUpdater.quitAndInstall(false, true);
+  return true;
 });

@@ -17,5 +17,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isPopupAlwaysOnTop: () => ipcRenderer.invoke('is-popup-always-on-top'),
   // 팝업 닫힘 이벤트 수신
   onPopupClosed: (callback) => ipcRenderer.on('popup-closed', (event, chatId) => callback(chatId)),
-  removePopupClosedListener: () => ipcRenderer.removeAllListeners('popup-closed')
+  removePopupClosedListener: () => ipcRenderer.removeAllListeners('popup-closed'),
+
+  // 상태 동기화 (메인/팝업 간)
+  syncChats: (chats) => ipcRenderer.send('sync-chats', chats),
+  onSyncChats: (callback) => ipcRenderer.on('sync-chats', (_event, chats) => callback(chats)),
+  removeSyncChatsListener: () => ipcRenderer.removeAllListeners('sync-chats'),
+
+  syncSettings: (settings) => ipcRenderer.send('sync-settings', settings),
+  onSyncSettings: (callback) => ipcRenderer.on('sync-settings', (_event, settings) => callback(settings)),
+  removeSyncSettingsListener: () => ipcRenderer.removeAllListeners('sync-settings')
 });

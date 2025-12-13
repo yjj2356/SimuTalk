@@ -261,12 +261,13 @@ export async function callOpenAIAPI(
     const requestBody: Record<string, unknown> = {
       model,
       input: inputPayload,
-      reasoning: { effort: 'low' },
-      text: { verbosity: 'low' },
+      reasoning: { effort: 'medium' },
+      text: { verbosity: 'medium' },
     };
     
     // Flex 티어 사용 시 service_tier 추가
-    if (flexTier) {
+    // NOTE: GPT-5.1 Chat 계열은 flex tier를 지원하지 않으므로 적용하지 않습니다.
+    if (flexTier && !model.startsWith('gpt-5.1-chat')) {
       requestBody.service_tier = 'flex';
     }
     

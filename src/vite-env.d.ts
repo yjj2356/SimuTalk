@@ -1,5 +1,9 @@
 /// <reference types="vite/client" />
 
+import type { AppSettings, Chat } from '@/types';
+
+export {};
+
 // Electron API 타입 정의
 interface ElectronAPI {
   getAppVersion: () => Promise<string>;
@@ -17,8 +21,19 @@ interface ElectronAPI {
   isPopupAlwaysOnTop: () => Promise<boolean>;
   onPopupClosed: (callback: (chatId: string) => void) => void;
   removePopupClosedListener: () => void;
+
+  // 상태 동기화
+  syncChats: (chats: Chat[]) => void;
+  onSyncChats: (callback: (chats: Chat[]) => void) => void;
+  removeSyncChatsListener: () => void;
+
+  syncSettings: (settings: AppSettings) => void;
+  onSyncSettings: (callback: (settings: AppSettings) => void) => void;
+  removeSyncSettingsListener: () => void;
 }
 
-interface Window {
-  electronAPI?: ElectronAPI;
+declare global {
+  interface Window {
+    electronAPI?: ElectronAPI;
+  }
 }

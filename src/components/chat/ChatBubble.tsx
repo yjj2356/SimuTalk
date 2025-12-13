@@ -13,6 +13,7 @@ interface ChatBubbleProps {
   currentBranchIndex: number;
   onBranchChange?: (index: number) => void;
   onGenerateBranch?: () => void;
+  hideBranchNavigation?: boolean;
   isLastCharacterMessage?: boolean;
   onTranslate?: () => void;
   onRetranslate?: () => void;
@@ -37,6 +38,7 @@ export function ChatBubble({
   currentBranchIndex,
   onBranchChange,
   onGenerateBranch,
+  hideBranchNavigation = false,
   onTranslate,
   onRetranslate,
   isTranslating,
@@ -270,7 +272,7 @@ export function ChatBubble({
         </button>
       )}
       {/* 분기 네비게이션: 분기가 있을 때만 항상 표시 */}
-      {hasBranches && (
+      {hasBranches && !hideBranchNavigation && (
         <div className="flex items-center gap-0.5 bg-white/80 rounded px-1 shadow-sm border border-gray-200">
           <button
             onClick={handlePrevBranch}
@@ -313,7 +315,7 @@ export function ChatBubble({
         </button>
       )}
       {/* 분기 네비게이션: 분기가 있을 때만 표시 */}
-      {hasBranches && (
+      {hasBranches && !hideBranchNavigation && (
         <div className="flex items-center gap-0.5 bg-white/80 rounded px-1 shadow-sm border border-gray-200">
           <button
             onClick={handlePrevBranch}
@@ -513,6 +515,7 @@ export function ChatBubble({
                         color: textColor,
                         padding: '5px 14px',
                         borderRadius: '12px',
+                        whiteSpace: 'pre-wrap',
                         alignSelf: isUser ? 'flex-end' : 'flex-start',
                       }}
                     >
@@ -646,6 +649,7 @@ export function ChatBubble({
                         color: textColor,
                         padding: '4px 9px',
                         borderRadius: themeConfig.chatBubble.borderRadius,
+                        whiteSpace: 'pre-wrap',
                         maxWidth: '220px',
                       }}
                     >
@@ -736,7 +740,7 @@ export function ChatBubble({
                 ))}
                 
                 {displayTranslation && showTranslation && (
-                  <div className="text-xs px-4 py-2 rounded-xl bg-gray-100 opacity-80 inline-block break-words" style={{ maxWidth: '100%' }}>
+                  <div className="text-xs px-4 py-2 rounded-xl bg-gray-100 opacity-80 inline-block break-words" style={{ maxWidth: '100%', whiteSpace: 'pre-wrap' }}>
                     {displayTranslation}
                   </div>
                 )}

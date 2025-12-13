@@ -15,6 +15,12 @@ import {
   callGeminiAPIStreaming,
   getProviderFromModel,
   cancelCurrentRequest,
+  shouldSummarize,
+  shouldResummarize,
+  getMessagesToSummarize,
+  getMemoriesToResummarize,
+  summarizeConversation,
+  resummarizeSummaries,
 } from '@/services/aiService';
 
 // 출력 언어 -> 언어명 매핑
@@ -45,7 +51,10 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
     setBranchIndex, 
     generatingChatId, 
     setGenerating, 
-    setChatMode 
+    setChatMode,
+    addMemorySummary,
+    removeMemorySummaries,
+    removeMessages,
   } = useChatStore();
   const { getCharacter } = useCharacterStore();
   const { getCurrentUserProfile } = useUserStore();
@@ -57,6 +66,91 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
   const userProfile = getCurrentUserProfile();
   
   const isLoading = generatingChatId === chatId;
+  const [isSummarizing, setIsSummarizing] = useState(false);
+
+  // 메모리 요약 필요 여부 확인 및 실행 (ChatWindow와 동일)
+  const checkAndSummarizeIfNeeded = async () => {
+    const chat = chats.find((c) => c.id === chatId);
+    if (!chat || !character || isSummarizing) return;
+    
+    const TOKEN_THRESHOLD = 40000;
+    const MEMORY_MAX_RATIO = 0.3;
+    const MEMORY_MAX_TOKENS = TOKEN_THRESHOLD * MEMORY_MAX_RATIO;
+    const MESSAGE_SET_COUNT = 4;
+    
+    const memorySummaries = chat.memorySummaries || [];
+    
+    // 1단계: 메모리가 최대 비율 초과 시 처리
+    if (shouldResummarize(memorySummaries, MEMORY_MAX_TOKENS)) {
+      setIsSummarizing(true);
+      
+      if (memorySummaries.length >= 2) {
+        const memoriesToMerge = getMemoriesToResummarize(memorySummaries, 2);
+        if (memoriesToMerge.length >= 2) {
+          const resummarizeResponse = await resummarizeSummaries(
+            memoriesToMerge,
+            settings.summaryModel || settings.responseModel,
+            settings.geminiApiKey,
+            settings.openaiApiKey
+          );
+          
+          if (!resummarizeResponse.error && resummarizeResponse.content) {
+            removeMemorySummaries(chatId, memoriesToMerge.map(m => m.id));
+            addMemorySummary(chatId, {
+              content: resummarizeResponse.content,
+              summarizedMessageIds: memoriesToMerge.flatMap(m => m.summarizedMessageIds),
+              startTime: Math.min(...memoriesToMerge.map(m => m.startTime)),
+              endTime: Math.max(...memoriesToMerge.map(m => m.endTime)),
+            });
+          }
+        }
+      } else if (memorySummaries.length === 1) {
+        const oldestMemory = [...memorySummaries].sort((a, b) => a.createdAt - b.createdAt)[0];
+        removeMemorySummaries(chatId, [oldestMemory.id]);
+      }
+      
+      setIsSummarizing(false);
+      return;
+    }
+    
+    // 2단계: 전체 컨텍스트가 임계값 초과 시 메시지 요약
+    if (!shouldSummarize(chat.messages, TOKEN_THRESHOLD, memorySummaries)) return;
+    
+    const messagesToSummarize = getMessagesToSummarize(chat.messages, MESSAGE_SET_COUNT);
+    if (messagesToSummarize.length < 2) {
+      if (memorySummaries.length > 0) {
+        const oldestMemory = [...memorySummaries].sort((a, b) => a.createdAt - b.createdAt)[0];
+        removeMemorySummaries(chatId, [oldestMemory.id]);
+      }
+      return;
+    }
+    
+    setIsSummarizing(true);
+    
+    const characterName = character.fieldProfile?.name || character.freeProfileName || '캐릭터';
+    const userName = userProfile?.fieldProfile?.name || '유저';
+    
+    const summaryResponse = await summarizeConversation(
+      messagesToSummarize,
+      characterName,
+      userName,
+      settings.summaryModel || settings.responseModel,
+      settings.geminiApiKey,
+      settings.openaiApiKey
+    );
+    
+    if (!summaryResponse.error && summaryResponse.content) {
+      addMemorySummary(chatId, {
+        content: summaryResponse.content,
+        summarizedMessageIds: messagesToSummarize.map(m => m.id),
+        startTime: messagesToSummarize[0].timestamp,
+        endTime: messagesToSummarize[messagesToSummarize.length - 1].timestamp,
+      });
+      removeMessages(chatId, messagesToSummarize.map(m => m.id));
+    }
+    
+    setIsSummarizing(false);
+  };
 
   // 응답 생성 취소
   const handleCancelGeneration = useCallback(() => {
@@ -237,15 +331,22 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
       settings.gptFlexTier
     );
 
-    if (!response.error && response.content) {
+    if (response.error) {
+      alert(`분기 생성 오류: ${response.error}`);
+    }
+
+    const responseContent = response.error
+      ? `오류가 발생했습니다: ${response.error}`
+      : (response.content || '');
+
+    if (responseContent) {
       addBranch(chatId, messageId, {
-        content: response.content,
+        content: responseContent,
+        translatedContent: undefined,
       });
 
       const newIndex = (message.branches?.length || 0) + 1;
       setBranchIndex(chatId, messageId, newIndex);
-    } else if (response.error) {
-      alert(`분기 생성 오류: ${response.error}`);
     }
 
     setGenerating(null);
@@ -459,6 +560,7 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
         }
 
         setGenerating(null);
+        await checkAndSummarizeIfNeeded();
         return;
       } else {
         alert(`번역 오류: ${translation.error}`);
@@ -562,62 +664,106 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
     }
 
     setGenerating(null);
+    await checkAndSummarizeIfNeeded();
   };
 
   // 메시지 수정 핸들러
   const handleEditMessage = async (messageId: string, newContent: string) => {
     if (!currentChat || !character || isLoading) return;
-    
-    updateMessage(chatId, messageId, { content: newContent });
-    
+
     const messageIndex = currentChat.messages.findIndex(m => m.id === messageId);
     if (messageIndex === -1) return;
-    
+
+    const editedMessage = currentChat.messages[messageIndex];
     const nextMessage = currentChat.messages[messageIndex + 1];
-    if (nextMessage && nextMessage.senderId === character.id) {
-      setGenerating(chatId);
-      
-      const messagesUpToEdit = currentChat.messages.slice(0, messageIndex);
-      const currentAppTime = getCurrentChatTime();
-      const currentTimeString = currentAppTime.toLocaleTimeString('ko-KR', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
+    const hasNextCharacterMessage = !!nextMessage && nextMessage.senderId === character.id;
+
+    const userExistingBranchCount = editedMessage.branches?.length || 0;
+    const characterExistingBranchCount = hasNextCharacterMessage
+      ? (nextMessage.branches?.length || 0)
+      : 0;
+
+    const targetBranchIndex = hasNextCharacterMessage
+      ? (Math.max(userExistingBranchCount, characterExistingBranchCount) + 1)
+      : (userExistingBranchCount + 1);
+
+    // 유저 메시지는 원본을 보존하고 브랜치로 새 버전 추가
+    const userFillersToAdd = Math.max(0, targetBranchIndex - userExistingBranchCount - 1);
+    for (let i = 0; i < userFillersToAdd; i++) {
+      addBranch(chatId, messageId, {
+        content: editedMessage.content,
+        translatedContent: undefined,
       });
-      
-      const outputLanguage = currentChat.outputLanguage || 'korean';
-      
-      const prompt = buildCharacterPrompt(
-        character,
-        userProfile,
-        messagesUpToEdit,
-        newContent,
-        outputLanguage,
-        currentTimeString,
-        currentChat.theme,
-        currentChat.memorySummaries
-      );
-
-      const response = await callAI(
-        prompt,
-        settings.responseModel,
-        settings.geminiApiKey,
-        settings.openaiApiKey,
-        undefined,
-        settings.gptFlexTier
-      );
-
-      if (!response.error && response.content) {
-        addBranch(chatId, nextMessage.id, {
-          content: response.content,
-        });
-        
-        const newIndex = (nextMessage.branches?.length || 0) + 1;
-        setBranchIndex(chatId, nextMessage.id, newIndex);
-      }
-      
-      setGenerating(null);
     }
+    addBranch(chatId, messageId, {
+      content: newContent,
+      translatedContent: undefined,
+    });
+    setBranchIndex(chatId, messageId, targetBranchIndex);
+
+    // 캐릭터 응답 생성/재생성
+    setGenerating(chatId);
+
+    const messagesUpToEdit = currentChat.messages.slice(0, messageIndex);
+    const currentAppTime = getCurrentChatTime();
+    const currentTimeString = currentAppTime.toLocaleTimeString('ko-KR', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+    const outputLanguage = currentChat.outputLanguage || 'korean';
+
+    const prompt = buildCharacterPrompt(
+      character,
+      userProfile,
+      messagesUpToEdit,
+      newContent,
+      outputLanguage,
+      currentTimeString,
+      currentChat.theme,
+      currentChat.memorySummaries
+    );
+
+    const response = await callAI(
+      prompt,
+      settings.responseModel,
+      settings.geminiApiKey,
+      settings.openaiApiKey,
+      undefined,
+      settings.gptFlexTier
+    );
+
+    if (response.error) {
+      alert(`응답 재생성 오류: ${response.error}`);
+    }
+
+    const responseContent = response.error
+      ? `오류가 발생했습니다: ${response.error}`
+      : (response.content || '');
+
+    if (hasNextCharacterMessage) {
+      const characterFillersToAdd = Math.max(0, targetBranchIndex - characterExistingBranchCount - 1);
+      for (let i = 0; i < characterFillersToAdd; i++) {
+        addBranch(chatId, nextMessage.id, {
+          content: nextMessage.content,
+          translatedContent: undefined,
+        });
+      }
+      addBranch(chatId, nextMessage.id, {
+        content: responseContent,
+        translatedContent: undefined,
+      });
+      setBranchIndex(chatId, nextMessage.id, targetBranchIndex);
+    } else {
+      addMessage(chatId, {
+        chatId,
+        senderId: character.id,
+        content: responseContent,
+      });
+    }
+
+    setGenerating(null);
   };
 
   if (!currentChat || !character) {
@@ -747,9 +893,22 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
             </div>
           ) : (
             currentChat.messages.map((message, index) => {
+              const prevMessage = index > 0 ? currentChat.messages[index - 1] : null;
+              const nextMessage = index < currentChat.messages.length - 1 ? currentChat.messages[index + 1] : null;
               const isFirstInGroup = index === 0 || 
                 currentChat.messages[index - 1].senderId !== message.senderId;
               const isLastCharMessage = message.id === lastCharacterMessageId;
+
+              const prevUserHasBranches = !!prevMessage && prevMessage.senderId === 'user' && ((prevMessage.branches?.length || 0) > 0);
+              const hideBranchNavigation = message.senderId === character.id && prevUserHasBranches;
+
+              const handleBranchChange = (branchIndex: number) => {
+                setBranchIndex(chatId, message.id, branchIndex);
+                if (message.senderId === 'user' && nextMessage && nextMessage.senderId === character.id) {
+                  const maxBranchIndex = nextMessage.branches?.length || 0;
+                  setBranchIndex(chatId, nextMessage.id, Math.min(branchIndex, maxBranchIndex));
+                }
+              };
               
               return (
                 <ChatBubble
@@ -761,15 +920,13 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
                   timestamp={message.timestamp}
                   branches={message.branches}
                   currentBranchIndex={message.currentBranchIndex}
-                  onBranchChange={message.branches && message.branches.length > 0 
-                    ? (idx) => setBranchIndex(chatId, message.id, idx)
-                    : undefined
-                  }
+                  onBranchChange={message.branches && message.branches.length > 0 ? handleBranchChange : undefined}
                   onGenerateBranch={
                     message.senderId !== 'user' && isLastCharMessage
                       ? () => handleGenerateBranch(message.id, index)
                       : undefined
                   }
+                  hideBranchNavigation={hideBranchNavigation}
                   isLastCharacterMessage={isLastCharMessage}
                   onTranslate={message.senderId !== 'user' && !message.translatedContent ? () => handleTranslateMessage(message.id) : undefined}
                   onRetranslate={message.senderId !== 'user' && message.translatedContent ? () => handleRetranslateMessage(message.id) : undefined}
