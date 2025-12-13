@@ -9,12 +9,16 @@ interface SettingsState {
   setResponseModel: (model: string) => void;
   setTranslationModel: (model: string) => void;
   setSummaryModel: (model: string) => void;
+  setGptFlexTier: (enabled: boolean) => void;
+  setPhoneFrame: (frame: 'iphone' | 'android') => void;
 }
 
 const defaultSettings: AppSettings = {
   responseModel: 'gemini-3-pro-preview',
   translationModel: 'gemini-2.5-flash-preview-09-2025',
   summaryModel: 'gemini-2.5-flash-preview-09-2025',
+  gptFlexTier: false,
+  phoneFrame: 'iphone',
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -40,6 +44,14 @@ export const useSettingsStore = create<SettingsState>()(
       setSummaryModel: (summaryModel) =>
         set((state) => ({
           settings: { ...state.settings, summaryModel },
+        })),
+      setGptFlexTier: (gptFlexTier) =>
+        set((state) => ({
+          settings: { ...state.settings, gptFlexTier },
+        })),
+      setPhoneFrame: (phoneFrame) =>
+        set((state) => ({
+          settings: { ...state.settings, phoneFrame },
         })),
     }),
     {

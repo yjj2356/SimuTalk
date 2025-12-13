@@ -1,21 +1,21 @@
-import { useState } from 'react';
 import { useChatStore, useSettingsStore, useCharacterStore, useUserStore } from '@/stores';
-import { callAI, buildAutopilotPrompt, parseAutopilotResponse } from '@/services/aiService';
+import { callAI, buildAutopilotPrompt, parseAutopilotResponse, cancelCurrentRequest } from '@/services/aiService';
 
 interface AutopilotControlsProps {
   chatId: string;
+  compact?: boolean; // 창 모드용 컴팩트 스타일
 }
 
-export function AutopilotControls({ chatId }: AutopilotControlsProps) {
-  const [isGenerating, setIsGenerating] = useState(false);
+export function AutopilotControls({ chatId, compact = false }: AutopilotControlsProps) {
   const { settings } = useSettingsStore();
-  const { getChat, setAutopilotScenario, setAutopilotRunning, addMessage } = useChatStore();
+  const { getChat, setAutopilotScenario, setAutopilotRunning, addMessage, generatingChatId, setGenerating } = useChatStore();
   const { getCharacter } = useCharacterStore();
   const { getCurrentUserProfile } = useUserStore();
 
   const chat = getChat(chatId);
   const character = chat ? getCharacter(chat.characterId) : undefined;
   const userProfile = getCurrentUserProfile();
+  const isGenerating = generatingChatId === chatId;
 
   if (!chat || !character) return null;
 
@@ -39,7 +39,7 @@ export function AutopilotControls({ chatId }: AutopilotControlsProps) {
       return;
     }
 
-    setIsGenerating(true);
+    setGenerating(chatId);
 
     // 현재 시간 가져오기 (채팅방별 시간 설정 사용)
     const currentAppTime = getCurrentChatTime();
@@ -63,7 +63,9 @@ export function AutopilotControls({ chatId }: AutopilotControlsProps) {
       prompt,
       settings.responseModel,
       settings.geminiApiKey,
-      settings.openaiApiKey
+      settings.openaiApiKey,
+      undefined,
+      settings.gptFlexTier
     );
 
     if (!response.error) {
@@ -79,7 +81,7 @@ export function AutopilotControls({ chatId }: AutopilotControlsProps) {
       alert(`오류: ${response.error}`);
     }
     
-    setIsGenerating(false);
+    setGenerating(null);
   };
 
   const handlePlay = async () => {
@@ -97,6 +99,12 @@ export function AutopilotControls({ chatId }: AutopilotControlsProps) {
   };
 
   const handlePause = () => {
+    setAutopilotRunning(chatId, false);
+  };
+
+  const handleCancel = () => {
+    cancelCurrentRequest();
+    setGenerating(null);
     setAutopilotRunning(chatId, false);
   };
 
@@ -118,28 +126,45 @@ export function AutopilotControls({ chatId }: AutopilotControlsProps) {
   };
 
   return (
-    <div className="p-5">
-      <div className="mb-4">
-        <label className="block text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wider">
-          Scenario Setup
-        </label>
+    <div className={compact ? 'space-y-2' : 'p-4'}>
+      <div className={compact ? 'mb-2' : 'mb-3'}>
+        {!compact && (
+          <div className="flex items-center text-[10px] font-semibold text-[#8e8e93] mb-2 uppercase tracking-wider">
+            Scenario
+          </div>
+        )}
         <textarea
           value={chat.autopilotScenario || ''}
           onChange={(e) => handleScenarioChange(e.target.value)}
           placeholder="대화가 진행될 상황을 설명해주세요..."
-          rows={2}
-          className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5 transition-all duration-200 resize-none"
+          rows={compact ? 1 : 2}
+          className={`w-full rounded-md border border-black/[0.08] bg-black/[0.02] focus:outline-none focus:bg-white focus:border-[#0071e3] transition-all resize-none ${
+            compact ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-[12px]'
+          }`}
         />
       </div>
 
-      <div className="flex items-center gap-3">
-        {isRunning ? (
+      <div className={`flex items-center ${compact ? 'gap-1.5' : 'gap-2'}`}>
+        {isGenerating ? (
+          <button
+            onClick={handleCancel}
+            className={`glossy-btn flex items-center gap-1.5 text-red-600 font-medium ${
+              compact ? 'px-2.5 py-1 text-[11px] rounded-md' : 'px-3 py-1.5 text-[12px] rounded-md'
+            }`}
+          >
+            <svg className={compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} fill="currentColor" viewBox="0 0 24 24">
+              <rect x="6" y="6" width="12" height="12" rx="1" />
+            </svg>
+            취소
+          </button>
+        ) : isRunning ? (
           <button
             onClick={handlePause}
-            disabled={isGenerating}
-            className="flex items-center gap-2 px-5 py-2.5 bg-black text-white rounded-full hover:bg-gray-800 transition-all duration-200 shadow-sm text-sm font-medium disabled:opacity-50"
+            className={`glossy-btn glossy-btn-active flex items-center gap-1.5 font-medium ${
+              compact ? 'px-2.5 py-1 text-[11px] rounded-md' : 'px-3 py-1.5 text-[12px] rounded-md'
+            }`}
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+            <svg className={compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} fill="currentColor" viewBox="0 0 24 24">
               <rect x="6" y="4" width="4" height="16" />
               <rect x="14" y="4" width="4" height="16" />
             </svg>
@@ -148,49 +173,28 @@ export function AutopilotControls({ chatId }: AutopilotControlsProps) {
         ) : (
           <button
             onClick={handlePlay}
-            disabled={isGenerating}
-            className="flex items-center gap-2 px-5 py-2.5 bg-black text-white rounded-full hover:bg-gray-800 transition-all duration-200 shadow-sm text-sm font-medium disabled:opacity-50"
+            className={`glossy-btn glossy-btn-active flex items-center gap-1.5 font-medium ${
+              compact ? 'px-2.5 py-1 text-[11px] rounded-md' : 'px-3 py-1.5 text-[12px] rounded-md'
+            }`}
           >
-            {isGenerating ? (
-              <>
-                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                생성 중...
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-                시작
-              </>
-            )}
+            <svg className={compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+            시작
           </button>
         )}
 
         <button
           onClick={handleStep}
           disabled={isGenerating}
-          className="flex items-center gap-2 px-5 py-2.5 bg-white text-gray-900 border border-gray-200 rounded-full hover:bg-gray-50 transition-all duration-200 shadow-sm text-sm font-medium disabled:opacity-50"
+          className={`glossy-btn flex items-center gap-1.5 text-[#1d1d1f] font-medium disabled:opacity-50 ${
+            compact ? 'px-2.5 py-1 text-[11px] rounded-md' : 'px-3 py-1.5 text-[12px] rounded-md'
+          }`}
         >
-          {isGenerating ? (
-            <>
-              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              생성 중...
-            </>
-          ) : (
-            <>
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-              </svg>
-              다음
-            </>
-          )}
+          <svg className={compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} fill="currentColor" viewBox="0 0 24 24">
+            <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+          </svg>
+          다음
         </button>
       </div>
     </div>

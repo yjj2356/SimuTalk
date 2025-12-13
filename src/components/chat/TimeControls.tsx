@@ -4,9 +4,10 @@ import { TimeSettings } from '@/types';
 
 interface TimeControlsProps {
   chatId: string;
+  compact?: boolean; // 창 모드용 컴팩트 스타일
 }
 
-export function TimeControls({ chatId }: TimeControlsProps) {
+export function TimeControls({ chatId, compact = false }: TimeControlsProps) {
   const { getChat, setChatTimeSettings } = useChatStore();
   const chat = getChat(chatId);
   
@@ -71,60 +72,89 @@ export function TimeControls({ chatId }: TimeControlsProps) {
 
   if (!chat) return null;
 
-  return (
-    <div className="bg-white/90 backdrop-blur-md rounded-2xl shadow-lg border border-gray-200/50 overflow-hidden">
-      {/* 헤더 - 항상 표시 */}
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-5 py-3 flex items-center justify-between hover:bg-gray-50/50 transition-colors"
-      >
+  // Compact 모드 (창 모드용)
+  if (compact) {
+    return (
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-gray-500">시간</span>
         <div className="flex items-center gap-2">
-          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Time</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={`text-sm font-medium ${isCustomMode ? 'text-blue-600' : 'text-gray-900'}`}>
+          <span className={`text-xs font-medium ${isCustomMode ? 'text-blue-600' : 'text-gray-900'}`}>
             {currentDisplayTime}
           </span>
           {isCustomMode && (
-            <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-medium">
-              설정됨
+            <span className="text-[9px] bg-blue-100 text-blue-600 px-1 py-0.5 rounded-full font-medium">
+              설정
+            </span>
+          )}
+          <button
+            onClick={handleSetRealtime}
+            disabled={!isCustomMode}
+            className={`px-2 py-1 text-[10px] rounded-md transition-colors ${
+              !isCustomMode
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            초기화
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white/95 backdrop-blur rounded-lg border border-black/[0.08] shadow-sm overflow-hidden">
+      {/* 헤더 - 항상 표시 */}
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full px-3 py-2.5 flex items-center justify-between hover:bg-black/[0.02] transition-colors"
+      >
+        <div className="flex items-center text-[10px] font-semibold text-[#8e8e93] uppercase tracking-wider">
+          <svg className="w-3.5 h-3.5 mr-1.5 text-[#8e8e93]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Time
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`time-display text-base font-medium ${isCustomMode ? 'text-[#1d1d1f]' : 'text-[#1d1d1f]'}`}>
+            {currentDisplayTime}
+          </span>
+          {isCustomMode && (
+            <span className="text-[9px] bg-[#1d1d1f] text-white px-1.5 py-0.5 rounded font-medium">
+              설정
             </span>
           )}
           <svg 
-            className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
+            className={`w-3.5 h-3.5 text-[#8e8e93] transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
             fill="none" 
             stroke="currentColor" 
             viewBox="0 0 24 24"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 9l-7 7-7-7" />
           </svg>
         </div>
       </button>
 
       {/* 확장된 설정 영역 */}
       {isExpanded && (
-        <div className="px-5 pb-4 pt-2 border-t border-gray-100 space-y-3">
+        <div className="px-3 pb-3 pt-1 border-t border-black/[0.06] space-y-2">
           {/* 모드 선택 버튼 */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-1.5">
             <button
               onClick={handleSetRealtime}
-              className={`py-2 px-3 rounded-lg border text-xs font-medium transition-all ${
+              className={`py-1.5 px-2 text-[11px] font-medium rounded-md transition-all ${
                 !isCustomMode
-                  ? 'bg-black text-white border-black'
-                  : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                  ? 'bg-[#1d1d1f] text-white'
+                  : 'text-[#6e6e73] bg-black/[0.04] hover:bg-black/[0.08]'
               }`}
             >
               현재 시간
             </button>
             <button
-              onClick={() => {}}
-              className={`py-2 px-3 rounded-lg border text-xs font-medium transition-all ${
+              className={`py-1.5 px-2 text-[11px] font-medium rounded-md transition-all ${
                 isCustomMode
-                  ? 'bg-black text-white border-black'
-                  : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                  ? 'bg-[#1d1d1f] text-white'
+                  : 'text-[#6e6e73] bg-black/[0.04] hover:bg-black/[0.08]'
               }`}
             >
               사용자 설정
@@ -132,24 +162,24 @@ export function TimeControls({ chatId }: TimeControlsProps) {
           </div>
 
           {/* 커스텀 시간 입력 */}
-          <div className="space-y-2">
-            <div className="flex gap-2">
+          <div className="space-y-1.5">
+            <div className="flex gap-1.5">
               <input
                 type="date"
                 value={customDateInput}
                 onChange={(e) => setCustomDateInput(e.target.value)}
-                className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5"
+                className="flex-1 rounded-md border border-black/[0.08] bg-black/[0.02] px-2 py-1.5 text-[11px] focus:bg-white transition-all"
               />
               <input
                 type="time"
                 value={customTimeInput}
                 onChange={(e) => setCustomTimeInput(e.target.value)}
-                className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs focus:outline-none focus:bg-white focus:ring-2 focus:ring-black/5"
+                className="flex-1 rounded-md border border-black/[0.08] bg-black/[0.02] px-2 py-1.5 text-[11px] focus:bg-white transition-all"
               />
             </div>
             <button
               onClick={handleSetCustomTime}
-              className="w-full py-2 bg-black text-white rounded-lg hover:bg-gray-800 text-xs font-medium transition-all"
+              className="w-full py-1.5 text-[11px] font-medium bg-[#1d1d1f] text-white rounded-md hover:bg-[#3a3a3c] transition-all"
             >
               시간 설정 적용
             </button>

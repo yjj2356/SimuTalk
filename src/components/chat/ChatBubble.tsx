@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useChatStore } from '@/stores';
+import { useChatStore, useStickerStore } from '@/stores';
 import { getThemeConfig } from '@/utils/theme';
 import { Character, MessageBranch, ThemeType } from '@/types';
 
@@ -24,6 +24,7 @@ interface ChatBubbleProps {
   formatTimeFunc?: (ts: number) => string;
   imageData?: string; // Base64 인코딩된 이미지 데이터
   imageMimeType?: string; // 이미지 MIME 타입
+  isSticker?: boolean; // 스티커 메시지 여부
 }
 
 export function ChatBubble({
@@ -46,6 +47,7 @@ export function ChatBubble({
   formatTimeFunc,
   imageData,
   imageMimeType,
+  isSticker,
 }: ChatBubbleProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -55,6 +57,7 @@ export function ChatBubble({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // 채팅 테마 사용 (전달된 theme 또는 현재 채팅방의 theme)
   const { chats, currentChatId } = useChatStore();
+  const { stickers } = useStickerStore();
   const currentChat = chats.find(c => c.id === currentChatId);
   const effectiveTheme = theme || currentChat?.theme || 'kakao';
   const themeConfig = getThemeConfig(effectiveTheme);
@@ -73,6 +76,81 @@ export function ChatBubble({
 
   const totalVersions = 1 + (branches?.length || 0);
   const hasBranches = totalVersions > 1;
+
+  // [[이모티콘이름]] 또는 [이모티콘이름] 패턴을 찾아서 이미지로 변환하는 함수
+  const renderTextWithStickers = (text: string) => {
+    // [[이모티콘이름]] 또는 [이모티콘이름] 패턴 매칭 (이중 대괄호 우선)
+    const stickerPattern = /\[\[([^\]]+)\]\]|\[([^\]]+)\]/g;
+    const parts: (string | JSX.Element)[] = [];
+    let lastIndex = 0;
+    let match;
+    let keyIndex = 0;
+
+    while ((match = stickerPattern.exec(text)) !== null) {
+      // 매치 이전의 텍스트 추가
+      if (match.index > lastIndex) {
+        parts.push(text.slice(lastIndex, match.index));
+      }
+
+      // match[1]은 [[...]]에서 캡처, match[2]는 [...]에서 캡처
+      const stickerName = match[1] || match[2];
+      // 이모티콘 찾기 (이름으로 매칭)
+      const sticker = stickers.find(s => 
+        s.name.toLowerCase() === stickerName.toLowerCase() ||
+        s.name.toLowerCase().includes(stickerName.toLowerCase()) ||
+        stickerName.toLowerCase().includes(s.name.toLowerCase())
+      );
+
+      if (sticker) {
+        // 이모티콘 이미지로 렌더링
+        parts.push(
+          <img
+            key={`sticker-${keyIndex++}`}
+            src={`data:${sticker.mimeType};base64,${sticker.imageData}`}
+            alt={sticker.name}
+            className="inline-block align-middle"
+            style={{ 
+              width: '80px', 
+              height: '80px', 
+              objectFit: 'contain',
+              verticalAlign: 'middle',
+              margin: '2px',
+            }}
+          />
+        );
+      } else {
+        // 이모티콘을 찾지 못하면 원본 텍스트 유지
+        parts.push(match[0]);
+      }
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    // 나머지 텍스트 추가
+    if (lastIndex < text.length) {
+      parts.push(text.slice(lastIndex));
+    }
+
+    return parts.length > 0 ? parts : text;
+  };
+
+  // 메시지가 오직 스티커만 포함하는지 확인
+  const isOnlySticker = (text: string): boolean => {
+    const trimmed = text.trim();
+    // [[이모티콘]] 또는 [이모티콘] 형식만 있는지 확인
+    const stickerPattern = /^(\[\[[^\]]+\]\]|\[[^\]]+\])$/;
+    if (!stickerPattern.test(trimmed)) return false;
+    
+    // 실제로 해당 이모티콘이 존재하는지도 확인
+    const nameMatch = trimmed.match(/\[\[([^\]]+)\]\]|\[([^\]]+)\]/);
+    if (!nameMatch) return false;
+    const stickerName = nameMatch[1] || nameMatch[2];
+    return stickers.some(s => 
+      s.name.toLowerCase() === stickerName.toLowerCase() ||
+      s.name.toLowerCase().includes(stickerName.toLowerCase()) ||
+      stickerName.toLowerCase().includes(s.name.toLowerCase())
+    );
+  };
 
   // [이름]: 형식 제거 함수
   const cleanSpeakerPrefix = (text: string): string => {
@@ -337,16 +415,17 @@ export function ChatBubble({
       <div 
         className="overflow-hidden"
         style={{ 
-          borderRadius,
-          maxWidth: '220px',
+          borderRadius: isSticker ? '0' : borderRadius,
+          maxWidth: isSticker ? '100px' : '220px',
+          background: isSticker ? 'transparent' : undefined,
         }}
       >
         <img 
           src={`data:${imageMimeType};base64,${imageData}`}
-          alt="첨부 이미지"
-          className="max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
+          alt={isSticker ? "스티커" : "첨부 이미지"}
+          className={`max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity ${isSticker ? 'hover:scale-105' : ''}`}
           style={{ 
-            maxHeight: '200px',
+            maxHeight: isSticker ? '100px' : '200px',
             objectFit: 'contain',
           }}
           onClick={() => {
@@ -363,7 +442,11 @@ export function ChatBubble({
 
   // iMessage 테마 렌더링
   if (effectiveTheme === 'imessage') {
-    const bubbleBgColor = isUser ? '#007AFF' : '#E9E9EB';
+    // imessageColor 설정에 따라 색상 결정 (blue: #007AFF, green: #38DA61)
+    const imessageColor = currentChat?.imessageColor || 'blue';
+    const bubbleBgColor = isUser 
+      ? (imessageColor === 'green' ? '#38DA61' : '#007AFF')
+      : '#E9E9EB';
     const textColor = isUser ? '#FFFFFF' : '#000000';
     
     return (
@@ -376,7 +459,7 @@ export function ChatBubble({
         <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`} style={{ maxWidth: '70%' }}>
           <div className={`flex items-end ${isUser ? 'flex-row-reverse' : 'flex-row'} gap-1`}>
             {/* 말풍선들 */}
-            <div className={`relative flex flex-col gap-[2px] ${isUser ? 'items-end' : 'items-start'}`} ref={bubbleRef}>
+            <div className={`relative flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`} ref={bubbleRef}>
               {isEditing ? (
                 renderEditMode('18px', '10px 14px')
               ) : (
@@ -384,7 +467,8 @@ export function ChatBubble({
                   {/* 이미지가 있으면 먼저 표시 */}
                   <ImageBubble borderRadius={isUser ? '18px 18px 4px 18px' : '18px 18px 18px 4px'} />
                   
-                  {messageLines.map((line, idx) => {
+                  {/* 스티커가 아닐 때만 텍스트 말풍선 표시 */}
+                  {!isSticker && messageLines.map((line, idx) => {
                     const isFirst = idx === 0;
                     const isLast = idx === messageLines.length - 1;
                     
@@ -409,14 +493,14 @@ export function ChatBubble({
                         key={idx}
                         className="text-[14px] leading-[1.35] break-words inline-block"
                         style={{
-                          backgroundColor: bubbleBgColor,
+                          backgroundColor: isOnlySticker(line) ? 'transparent' : bubbleBgColor,
                           color: textColor,
-                          padding: '7px 14px',
+                          padding: isOnlySticker(line) ? '0' : '7px 14px',
                           borderRadius,
                           maxWidth: '100%',
                         }}
                       >
-                        {line}
+                        {renderTextWithStickers(line)}
                       </div>
                     );
                   })}
@@ -506,7 +590,7 @@ export function ChatBubble({
 
           <div className={`flex items-end ${isUser ? 'flex-row-reverse' : 'flex-row'} gap-1`}>
             {/* 말풍선들 */}
-            <div className={`relative flex flex-col gap-[2px] ${isUser ? 'items-end' : 'items-start'}`} ref={bubbleRef}>
+            <div className={`relative flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`} ref={bubbleRef}>
               {isEditing ? (
                 renderEditMode(themeConfig.chatBubble.borderRadius, '8px 12px')
               ) : (
@@ -514,7 +598,8 @@ export function ChatBubble({
                   {/* 이미지가 있으면 먼저 표시 */}
                   <ImageBubble borderRadius={themeConfig.chatBubble.borderRadius} />
                   
-                  {messageLines.map((line, idx) => {
+                  {/* 스티커가 아닐 때만 텍스트 말풍선 표시 */}
+                  {!isSticker && messageLines.map((line, idx) => {
                     const isFirst = idx === 0;
                     const showTail = isFirst && isFirstInGroup && themeConfig.chatBubble.tailUser && themeConfig.chatBubble.tailPartner;
                     
@@ -523,15 +608,15 @@ export function ChatBubble({
                         <div
                           className={`${themeConfig.chatBubble.fontSize} ${themeConfig.chatBubble.lineHeight} break-words inline-block`}
                           style={{
-                            backgroundColor: bubbleBgColor,
+                            backgroundColor: isOnlySticker(line) ? 'transparent' : bubbleBgColor,
                             color: textColor,
-                            padding: '5px 9px',
+                            padding: isOnlySticker(line) ? '0' : '5px 9px',
                             borderRadius: themeConfig.chatBubble.borderRadius,
-                            boxShadow: '0 1px 1px rgba(0,0,0,0.05)',
+                            boxShadow: isOnlySticker(line) ? 'none' : '0 1px 1px rgba(0,0,0,0.05)',
                             maxWidth: '220px',
                           }}
                         >
-                          {line}
+                          {renderTextWithStickers(line)}
                         </div>
                         
                         {/* 말풍선 꼬리 (첫 번째 말풍선에만) */}
@@ -627,7 +712,7 @@ export function ChatBubble({
 
         <div className={`flex items-end gap-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
           {/* 말풍선들 */}
-          <div className={`relative flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`} ref={bubbleRef}>
+          <div className={`relative flex flex-col gap-2 ${isUser ? 'items-end' : 'items-start'}`} ref={bubbleRef}>
             {isEditing ? (
               renderEditMode('0.75rem', '10px 16px')
             ) : (
@@ -635,13 +720,18 @@ export function ChatBubble({
                 {/* 이미지가 있으면 먼저 표시 */}
                 <ImageBubble borderRadius="0.75rem" />
                 
-                {messageLines.map((line, idx) => (
+                {/* 스티커가 아닐 때만 텍스트 말풍선 표시 */}
+                {!isSticker && messageLines.map((line, idx) => (
                   <div 
                     key={idx}
                     className={`px-4 py-2.5 rounded-xl inline-block break-words ${idx === 0 && isUser ? 'rounded-tr-sm' : ''} ${idx === 0 && !isUser ? 'rounded-tl-sm' : ''} ${isUser ? themeConfig.chatBubble.user : themeConfig.chatBubble.partner} ${themeConfig.chatBubble.fontSize} ${themeConfig.chatBubble.lineHeight}`}
-                    style={{ maxWidth: '100%' }}
+                    style={{ 
+                      maxWidth: '100%',
+                      backgroundColor: isOnlySticker(line) ? 'transparent' : undefined,
+                      padding: isOnlySticker(line) ? '0' : undefined,
+                    }}
                   >
-                    {line}
+                    {renderTextWithStickers(line)}
                   </div>
                 ))}
                 

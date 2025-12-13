@@ -1,5 +1,6 @@
 import { useState, KeyboardEvent, useRef, ChangeEvent } from 'react';
-import { ThemeType } from '@/types';
+import { ThemeType, Sticker } from '@/types';
+import { StickerPicker } from '@/components/sticker';
 
 interface ImageData {
   data: string; // Base64 인코딩된 이미지 데이터
@@ -9,6 +10,8 @@ interface ImageData {
 
 interface ChatInputProps {
   onSend: (message: string, imageData?: { data: string; mimeType: string }) => void;
+  onSendSticker?: (sticker: Sticker) => void;
+  onOpenStickerManager?: () => void;
   disabled?: boolean;
   placeholder?: string;
   theme?: ThemeType;
@@ -16,12 +19,15 @@ interface ChatInputProps {
 
 export function ChatInput({
   onSend,
+  onSendSticker,
+  onOpenStickerManager,
   disabled = false,
   placeholder = '메시지 입력... (/t 텍스트로 번역)',
   theme = 'basic',
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [selectedImage, setSelectedImage] = useState<ImageData | null>(null);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 이미지 파일 선택 처리
@@ -122,7 +128,25 @@ export function ChatInput({
   // 카카오톡 스타일 입력창
   if (theme === 'kakao') {
     return (
-      <div className="bg-white z-10">
+      <div className="bg-white z-10 relative">
+        {/* 이모티콘 선택기 */}
+        {showStickerPicker && (
+          <StickerPicker
+            onSelect={(sticker) => {
+              if (onSendSticker) {
+                onSendSticker(sticker);
+              }
+              setShowStickerPicker(false);
+            }}
+            onManage={() => {
+              if (onOpenStickerManager) {
+                onOpenStickerManager();
+              }
+              setShowStickerPicker(false);
+            }}
+            onClose={() => setShowStickerPicker(false)}
+          />
+        )}
         {/* 이미지 미리보기 영역 */}
         {selectedImage && (
           <div className="px-2 pt-2 pb-1">
@@ -148,7 +172,12 @@ export function ChatInput({
               className="border-none bg-transparent outline-none w-full text-[13px]"
             />
             <div className="flex gap-2 ml-2 flex-shrink-0 items-center">
-              <svg className="w-5 h-5 cursor-pointer text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+              <svg 
+                onClick={() => setShowStickerPicker(!showStickerPicker)}
+                className={`w-5 h-5 cursor-pointer ${showStickerPicker ? 'text-yellow-500' : 'text-gray-400'} hover:text-yellow-500`}
+                fill="currentColor" 
+                viewBox="0 0 24 24"
+              >
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8 0-4.41 3.59-8 8-8s8 3.59 8 8c0 4.41-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
               </svg>
               <span className="cursor-pointer text-gray-400 text-base">#</span>
@@ -162,7 +191,25 @@ export function ChatInput({
   // 라인 스타일 입력창
   if (theme === 'line') {
     return (
-      <div className="bg-white z-10">
+      <div className="bg-white z-10 relative">
+        {/* 이모티콘 선택기 */}
+        {showStickerPicker && (
+          <StickerPicker
+            onSelect={(sticker) => {
+              if (onSendSticker) {
+                onSendSticker(sticker);
+              }
+              setShowStickerPicker(false);
+            }}
+            onManage={() => {
+              if (onOpenStickerManager) {
+                onOpenStickerManager();
+              }
+              setShowStickerPicker(false);
+            }}
+            onClose={() => setShowStickerPicker(false)}
+          />
+        )}
         {/* 이미지 미리보기 영역 */}
         {selectedImage && (
           <div className="px-[10px] pt-2 pb-1 border-t border-[#dcdcdc]">
@@ -176,8 +223,13 @@ export function ChatInput({
             <svg onClick={handleImageButtonClick} className="w-[19px] h-[19px] cursor-pointer" fill="currentColor" viewBox="0 0 24 24">
               <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
             </svg>
-            <svg className="w-[19px] h-[19px] cursor-pointer" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+            <svg 
+              onClick={() => setShowStickerPicker(!showStickerPicker)}
+              className={`w-[19px] h-[19px] cursor-pointer ${showStickerPicker ? 'text-green-500' : ''}`}
+              fill="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8 0-4.41 3.59-8 8-8s8 3.59 8 8c0 4.41-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
             </svg>
             <svg onClick={handleImageButtonClick} className="w-[19px] h-[19px] cursor-pointer" fill="currentColor" viewBox="0 0 24 24">
               <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
@@ -214,7 +266,25 @@ export function ChatInput({
   // iMessage 스타일 입력창
   if (theme === 'imessage') {
     return (
-      <div className="bg-white">
+      <div className="bg-white relative">
+        {/* 이모티콘 선택기 */}
+        {showStickerPicker && (
+          <StickerPicker
+            onSelect={(sticker) => {
+              if (onSendSticker) {
+                onSendSticker(sticker);
+              }
+              setShowStickerPicker(false);
+            }}
+            onManage={() => {
+              if (onOpenStickerManager) {
+                onOpenStickerManager();
+              }
+              setShowStickerPicker(false);
+            }}
+            onClose={() => setShowStickerPicker(false)}
+          />
+        )}
         {/* 이미지 미리보기 영역 */}
         {selectedImage && (
           <div className="px-3 pt-2 pb-1 border-t border-[#E5E5E5]">
@@ -230,6 +300,16 @@ export function ChatInput({
           >
             <svg className="w-[14px] h-[14px]" fill="#79797e" viewBox="0 0 24 24">
               <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+            </svg>
+          </div>
+          
+          {/* 이모티콘 버튼 */}
+          <div 
+            onClick={() => setShowStickerPicker(!showStickerPicker)}
+            className={`w-7 h-7 rounded-full flex justify-center items-center flex-shrink-0 cursor-pointer mb-1 ${showStickerPicker ? 'bg-blue-100' : 'bg-[#D1D1D6] hover:bg-[#C1C1C6]'}`}
+          >
+            <svg className="w-[14px] h-[14px]" fill={showStickerPicker ? '#007AFF' : '#79797e'} viewBox="0 0 24 24">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8 0-4.41 3.59-8 8-8s8 3.59 8 8c0 4.41-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
             </svg>
           </div>
           
@@ -257,7 +337,25 @@ export function ChatInput({
 
   // 기본 스타일 입력창
   return (
-    <div className="bg-white border-t border-gray-200">
+    <div className="bg-white border-t border-gray-200 relative">
+      {/* 이모티콘 선택기 */}
+      {showStickerPicker && (
+        <StickerPicker
+          onSelect={(sticker) => {
+            if (onSendSticker) {
+              onSendSticker(sticker);
+            }
+            setShowStickerPicker(false);
+          }}
+          onManage={() => {
+            if (onOpenStickerManager) {
+              onOpenStickerManager();
+            }
+            setShowStickerPicker(false);
+          }}
+          onClose={() => setShowStickerPicker(false)}
+        />
+      )}
       {/* 이미지 미리보기 영역 */}
       {selectedImage && (
         <div className="px-4 pt-3">
@@ -274,6 +372,20 @@ export function ChatInput({
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        </button>
+        {/* 이모티콘 버튼 */}
+        <button
+          onClick={() => setShowStickerPicker(!showStickerPicker)}
+          className={`w-11 h-11 flex items-center justify-center rounded-lg transition-all duration-200 ${
+            showStickerPicker 
+              ? 'bg-black text-white' 
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+          title="이모티콘"
+        >
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8 0-4.41 3.59-8 8-8s8 3.59 8 8c0 4.41-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
           </svg>
         </button>
         <textarea

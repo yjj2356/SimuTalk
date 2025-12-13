@@ -1,6 +1,69 @@
 // 테마 타입
 export type ThemeType = 'kakao' | 'line' | 'imessage' | 'basic';
 
+// iMessage 말풍선 색상 (blue: 애플끼리, green: 아이폰-안드로이드)
+export type IMessageColor = 'blue' | 'green';
+
+// 폰 프레임 타입
+export type PhoneFrameType = 'iphone' | 'android';
+
+// 배경 타입
+export type BackgroundType = 'solid' | 'gradient' | 'pattern' | 'image';
+
+// 그라데이션 방향
+export type GradientDirection = 'to-r' | 'to-l' | 'to-t' | 'to-b' | 'to-tr' | 'to-tl' | 'to-br' | 'to-bl';
+
+// 패턴 타입
+export type PatternType = 'dots' | 'grid' | 'diagonal' | 'zigzag' | 'circles';
+
+// 스티커/위젯 타입
+export interface BackgroundWidget {
+  id: string;
+  type: 'sticker' | 'emoji' | 'text' | 'image';
+  content: string; // emoji/text의 경우 내용, image의 경우 base64 URL
+  x: number; // percent
+  y: number; // percent
+  size: number; // scale factor
+  rotation: number; // degrees
+}
+
+// 배경 설정
+export interface BackgroundSettings {
+  type: BackgroundType;
+  solidColor?: string;
+  gradientColors?: [string, string];
+  gradientDirection?: GradientDirection;
+  patternType?: PatternType;
+  patternColor?: string;
+  patternBgColor?: string;
+  imageUrl?: string;
+  imageOpacity?: number;
+  widgets?: BackgroundWidget[];
+}
+
+// 테마 커스터마이징 설정
+export interface ThemeCustomization {
+  // 포인트 컬러 (버튼, 토글 등 강조색)
+  accentColor: string;
+  
+  // 사이드바 설정
+  sidebarBgColor: string;
+  sidebarTextColor: string;
+  sidebarBorderColor: string;
+  
+  // 폰 옆 패널/설정창 색상
+  panelBgColor: string;
+  panelTextColor: string;
+  panelBorderColor: string;
+  
+  // 메인 배경 (폰 뒤 회색 영역)
+  mainBackground: BackgroundSettings;
+  
+  // 폰 프레임 색상
+  phoneFrameColor: string;
+  phoneFrameRingColor: string;
+}
+
 // 채팅 모드
 export type ChatMode = 'immersion' | 'autopilot';
 
@@ -35,6 +98,7 @@ export interface Message {
   currentBranchIndex: number; // 현재 선택된 분기 인덱스 (0 = 원본)
   imageData?: string; // Base64 인코딩된 이미지 데이터
   imageMimeType?: string; // 이미지 MIME 타입 (image/jpeg, image/png, etc.)
+  isSticker?: boolean; // 스티커 메시지 여부 (이모티콘)
 }
 
 // 캐릭터 프로필 (필드 모드)
@@ -104,6 +168,7 @@ export interface Chat {
   characterId: string;
   userProfileId?: string; // 유저 프로필 슬롯 ID
   theme: ThemeType; // 채팅방 고정 테마
+  imessageColor?: IMessageColor; // iMessage 테마일 때 말풍선 색상
   messages: Message[];
   memorySummaries?: MemorySummary[]; // 장기 기억 요약들
   mode: ChatMode;
@@ -123,6 +188,17 @@ export interface MessageBranch {
   timestamp: number;
 }
 
+// 이모티콘/스티커
+export interface Sticker {
+  id: string;
+  name: string; // 이모티콘 이름
+  description: string; // 이모티콘 설명 (AI 컨텍스트용)
+  imageData: string; // Base64 이미지 데이터
+  mimeType: string; // image/png, image/jpeg, image/gif 등
+  isCharacterUsable: boolean; // 캐릭터도 이 이모티콘을 사용할 수 있는지
+  createdAt: number;
+}
+
 // 앱 설정
 export interface AppSettings {
   geminiApiKey?: string;
@@ -130,6 +206,8 @@ export interface AppSettings {
   responseModel: string; // 답변 모델 (gemini-xxx 또는 gpt-xxx)
   translationModel: string; // 번역 모델 (gemini-xxx 또는 gpt-xxx)
   summaryModel: string; // 요약 모델 (gemini-xxx 또는 gpt-xxx)
+  gptFlexTier?: boolean; // GPT Flex 티어 사용 여부 (저렴한 가격, 느린 처리)
+  phoneFrame?: PhoneFrameType; // 폰 프레임 타입 (iphone/android)
   // 레거시 호환 (deprecated)
   defaultAIProvider?: AIProvider;
   geminiModel?: string;

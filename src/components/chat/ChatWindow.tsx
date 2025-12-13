@@ -1,9 +1,10 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { ChatBubble } from './ChatBubble';
 import { ChatInput } from './ChatInput';
-import { useSettingsStore, useChatStore, useCharacterStore, useUserStore } from '@/stores';
+import { useSettingsStore, useChatStore, useCharacterStore, useUserStore, useStickerStore } from '@/stores';
 import { getThemeConfig } from '@/utils/theme';
-import { OutputLanguage } from '@/types';
+import { OutputLanguage, Sticker } from '@/types';
+import { StickerManager } from '@/components/sticker';
 import { 
   callAI, 
   buildCharacterPrompt, 
@@ -15,10 +16,13 @@ import {
   getMemoriesToResummarize,
   summarizeConversation,
   resummarizeSummaries,
+  callGeminiAPIStreaming,
+  getProviderFromModel,
+  cancelCurrentRequest,
 } from '@/services/aiService';
 
 // 출력 언어 -> 언어명 매핑
-const languageNames: Record<string, string> = {
+const languageNames: Record<OutputLanguage, string> = {
   korean: '한국어',
   english: 'English',
   japanese: '日本語',
@@ -27,20 +31,28 @@ const languageNames: Record<string, string> = {
 
 export function ChatWindow() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const languageMenuRef = useRef<HTMLDivElement>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
-  const [showLanguageMenu, setShowLanguageMenu] = useState(false);
+  const [showStickerManager, setShowStickerManager] = useState(false);
   const { settings } = useSettingsStore();
-  const { chats, currentChatId, addMessage, updateMessage, addBranch, setBranchIndex, addMemorySummary, removeMemorySummaries, removeMessages, setChatOutputLanguage } = useChatStore();
+  const { chats, currentChatId, addMessage, updateMessage, updateBranchTranslation, addBranch, setBranchIndex, addMemorySummary, removeMemorySummaries, removeMessages, generatingChatId, setGenerating } = useChatStore();
   const { getCharacter } = useCharacterStore();
   const { getCurrentUserProfile } = useUserStore();
+  const { stickers } = useStickerStore();
 
   const currentChat = chats.find((chat) => chat.id === currentChatId);
   const themeConfig = currentChat ? getThemeConfig(currentChat.theme) : getThemeConfig('basic');
   const character = currentChat ? getCharacter(currentChat.characterId) : undefined;
   const userProfile = getCurrentUserProfile();
+  
+  // 현재 채팅방의 응답 생성 상태
+  const isLoading = generatingChatId === currentChatId;
+
+  // 응답 생성 취소
+  const handleCancelGeneration = useCallback(() => {
+    cancelCurrentRequest();
+    setGenerating(null);
+  }, [setGenerating]);
 
   // 채팅방별 시간 계산 함수
   const getCurrentChatTime = useCallback((): Date => {
@@ -87,22 +99,6 @@ export function ChatWindow() {
     scrollToBottom();
   }, [currentChat?.messages]);
 
-  // 언어 메뉴 외부 클릭 시 닫기
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (languageMenuRef.current && !languageMenuRef.current.contains(event.target as Node)) {
-        setShowLanguageMenu(false);
-      }
-    };
-
-    if (showLanguageMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showLanguageMenu]);
-
   // 마지막 캐릭터 메시지 ID 찾기
   const getLastCharacterMessageId = () => {
     if (!currentChat || !character) return null;
@@ -125,8 +121,14 @@ export function ChatWindow() {
 
     setIsTranslating(true);
 
+    // 현재 선택된 분기의 내용을 가져옴
+    const currentBranchIndex = message.currentBranchIndex || 0;
+    const contentToTranslate = currentBranchIndex === 0
+      ? message.content
+      : message.branches?.[currentBranchIndex - 1]?.content || message.content;
+
     const translation = await translateText(
-      message.content,
+      contentToTranslate,
       '한국어',
       settings.translationModel,
       settings.geminiApiKey,
@@ -134,7 +136,12 @@ export function ChatWindow() {
     );
 
     if (!translation.error) {
-      updateMessage(currentChat.id, messageId, { translatedContent: translation.content });
+      // 분기 선택 여부에 따라 번역 저장 위치 결정
+      if (currentBranchIndex === 0) {
+        updateMessage(currentChat.id, messageId, { translatedContent: translation.content });
+      } else {
+        updateBranchTranslation(currentChat.id, messageId, currentBranchIndex - 1, translation.content);
+      }
     } else {
       alert(`번역 오류: ${translation.error}`);
     }
@@ -151,11 +158,21 @@ export function ChatWindow() {
 
     setIsTranslating(true);
 
+    // 현재 선택된 분기의 내용을 가져옴
+    const currentBranchIndex = message.currentBranchIndex || 0;
+    const contentToTranslate = currentBranchIndex === 0
+      ? message.content
+      : message.branches?.[currentBranchIndex - 1]?.content || message.content;
+
     // 기존 번역 지우고 새로 번역
-    updateMessage(currentChat.id, messageId, { translatedContent: undefined });
+    if (currentBranchIndex === 0) {
+      updateMessage(currentChat.id, messageId, { translatedContent: undefined });
+    } else {
+      updateBranchTranslation(currentChat.id, messageId, currentBranchIndex - 1, undefined);
+    }
 
     const translation = await translateText(
-      message.content,
+      contentToTranslate,
       '한국어',
       settings.translationModel,
       settings.geminiApiKey,
@@ -163,7 +180,11 @@ export function ChatWindow() {
     );
 
     if (!translation.error) {
-      updateMessage(currentChat.id, messageId, { translatedContent: translation.content });
+      if (currentBranchIndex === 0) {
+        updateMessage(currentChat.id, messageId, { translatedContent: translation.content });
+      } else {
+        updateBranchTranslation(currentChat.id, messageId, currentBranchIndex - 1, translation.content);
+      }
     } else {
       alert(`번역 오류: ${translation.error}`);
     }
@@ -174,12 +195,12 @@ export function ChatWindow() {
   const handleSendMessage = async (content: string, imageData?: { data: string; mimeType: string }) => {
     if (!currentChat || !character || isLoading) return;
 
-    // /t 명령어 처리: 번역만 하고 전송하지 않음 (이미지는 번역 불가)
-    if (content.startsWith('/t ') && !imageData) {
+    // /t 명령어 처리: 번역 후 AI 응답도 생성 (이미지도 함께 전송 가능)
+    if (content.startsWith('/t ')) {
       const textToTranslate = content.slice(3);
       if (!textToTranslate.trim()) return;
 
-      setIsLoading(true);
+      setGenerating(currentChatId!);
 
       const chatOutputLanguage = currentChat.outputLanguage || 'korean';
       const targetLanguage = languageNames[chatOutputLanguage] || chatOutputLanguage;
@@ -192,22 +213,108 @@ export function ChatWindow() {
       );
 
       if (!translation.error) {
-        // 번역 결과를 유저 메시지로 추가 (원문을 번역으로 표시)
+        // 번역 결과를 유저 메시지로 추가 (원문을 번역으로 표시, 이미지 포함)
         addMessage(currentChat.id, {
           chatId: currentChat.id,
           senderId: 'user',
           content: translation.content,
           translatedContent: textToTranslate, // 원문을 하단에 표시
+          imageData: imageData?.data,
+          imageMimeType: imageData?.mimeType,
         });
+
+        // 번역된 메시지로 AI 응답 생성
+        const currentAppTime = getCurrentChatTime();
+        const currentTimeString = currentAppTime.toLocaleTimeString('ko-KR', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        });
+
+        const outputLanguage = currentChat.outputLanguage || 'korean';
+        const prompt = buildCharacterPrompt(
+          character,
+          userProfile,
+          currentChat.messages,
+          translation.content,
+          outputLanguage,
+          currentTimeString,
+          currentChat.theme,
+          currentChat.memorySummaries
+        );
+
+        // Gemini 모델인 경우 스트리밍 사용 (응답 완료 후 하나의 메시지로 저장)
+        const provider = getProviderFromModel(settings.responseModel);
+        
+        if (provider === 'gemini' && settings.geminiApiKey) {
+          const response = await callGeminiAPIStreaming(
+            prompt,
+            settings.geminiApiKey,
+            settings.responseModel,
+            undefined
+          );
+
+          // 요청이 취소된 경우 (빈 응답 + 에러 없음) 메시지 추가하지 않음
+          if (!response.content && !response.error) {
+            setGenerating(null);
+            return;
+          }
+
+          if (response.error) {
+            addMessage(currentChat.id, {
+              chatId: currentChat.id,
+              senderId: character.id,
+              content: `⚠️ 오류: ${response.error}`,
+            });
+          } else {
+            addMessage(currentChat.id, {
+              chatId: currentChat.id,
+              senderId: character.id,
+              content: response.content,
+            });
+          }
+        } else {
+          const response = await callAI(
+            prompt,
+            settings.responseModel,
+            settings.geminiApiKey,
+            settings.openaiApiKey,
+            undefined,
+            settings.gptFlexTier
+          );
+
+          // 요청이 취소된 경우 (빈 응답 + 에러 없음) 메시지 추가하지 않음
+          if (!response.content && !response.error) {
+            setGenerating(null);
+            return;
+          }
+
+          if (response.error) {
+            addMessage(currentChat.id, {
+              chatId: currentChat.id,
+              senderId: character.id,
+              content: `⚠️ 오류: ${response.error}`,
+            });
+          } else {
+            addMessage(currentChat.id, {
+              chatId: currentChat.id,
+              senderId: character.id,
+              content: response.content,
+            });
+          }
+        }
+
+        setGenerating(null);
+        await checkAndSummarizeIfNeeded();
+        return;
       } else {
         alert(`번역 오류: ${translation.error}`);
+        setGenerating(null);
+        return;
       }
-
-      setIsLoading(false);
-      return;
     }
 
-    setIsLoading(true);
+    setGenerating(currentChatId!);
 
     // 유저 메시지 추가 (이미지 포함)
     addMessage(currentChat.id, {
@@ -246,29 +353,69 @@ export function ChatWindow() {
       ? `${prompt}\n\n[IMPORTANT: The user has sent an image along with this message. You MUST look at and acknowledge the image in your response. Describe what you see in the image or react to it naturally as the character would.]`
       : prompt;
 
-    const response = await callAI(
-      finalPrompt,
-      settings.responseModel,
-      settings.geminiApiKey,
-      settings.openaiApiKey,
-      imageData ? { data: imageData.data, mimeType: imageData.mimeType } : undefined
-    );
+    // Gemini 모델인 경우 스트리밍 사용 (응답 완료 후 하나의 메시지로 저장)
+    const provider = getProviderFromModel(settings.responseModel);
+    
+    if (provider === 'gemini' && settings.geminiApiKey) {
+      const response = await callGeminiAPIStreaming(
+        finalPrompt,
+        settings.geminiApiKey,
+        settings.responseModel,
+        imageData ? { data: imageData.data, mimeType: imageData.mimeType } : undefined
+      );
 
-    if (response.error) {
-      addMessage(currentChat.id, {
-        chatId: currentChat.id,
-        senderId: character.id,
-        content: `⚠️ 오류: ${response.error}`,
-      });
+      // 요청이 취소된 경우 (빈 응답 + 에러 없음) 무시
+      if (!response.content && !response.error) {
+        setGenerating(null);
+        return;
+      }
+
+      if (response.error) {
+        addMessage(currentChat.id, {
+          chatId: currentChat.id,
+          senderId: character.id,
+          content: `⚠️ 오류: ${response.error}`,
+        });
+      } else {
+        addMessage(currentChat.id, {
+          chatId: currentChat.id,
+          senderId: character.id,
+          content: response.content,
+        });
+      }
     } else {
-      addMessage(currentChat.id, {
-        chatId: currentChat.id,
-        senderId: character.id,
-        content: response.content,
-      });
+      // OpenAI 등 다른 모델은 기존 방식
+      const response = await callAI(
+        finalPrompt,
+        settings.responseModel,
+        settings.geminiApiKey,
+        settings.openaiApiKey,
+        imageData ? { data: imageData.data, mimeType: imageData.mimeType } : undefined,
+        settings.gptFlexTier
+      );
+
+      // 요청이 취소된 경우 (빈 응답 + 에러 없음) 메시지 추가하지 않음
+      if (!response.content && !response.error) {
+        setGenerating(null);
+        return;
+      }
+
+      if (response.error) {
+        addMessage(currentChat.id, {
+          chatId: currentChat.id,
+          senderId: character.id,
+          content: `⚠️ 오류: ${response.error}`,
+        });
+      } else {
+        addMessage(currentChat.id, {
+          chatId: currentChat.id,
+          senderId: character.id,
+          content: response.content,
+        });
+      }
     }
 
-    setIsLoading(false);
+    setGenerating(null);
     
     // 메모리 시스템: 토큰 초과 시 자동 요약
     await checkAndSummarizeIfNeeded();
@@ -279,51 +426,68 @@ export function ChatWindow() {
     if (!currentChat || !character || isSummarizing) return;
     
     const TOKEN_THRESHOLD = 40000; // 40000 토큰 초과 시 요약
-    const MEMORY_TOKEN_THRESHOLD = 10000; // 메모리가 10000 토큰 넘으면 재요약
+    const MEMORY_MAX_RATIO = 0.3; // 메모리는 전체 컨텍스트의 최대 30%
+    const MEMORY_MAX_TOKENS = TOKEN_THRESHOLD * MEMORY_MAX_RATIO; // 12000 토큰
     const MESSAGE_SET_COUNT = 4; // 수신+발신 4세트 = 8메시지 단위로 요약
     
     const memorySummaries = currentChat.memorySummaries || [];
     
-    // 1단계: 메모리가 너무 많으면 먼저 재요약
-    if (shouldResummarize(memorySummaries, MEMORY_TOKEN_THRESHOLD)) {
+    // 1단계: 메모리가 최대 비율 초과 시 처리
+    if (shouldResummarize(memorySummaries, MEMORY_MAX_TOKENS)) {
       setIsSummarizing(true);
       
-      const memoriesToMerge = getMemoriesToResummarize(memorySummaries, 2);
-      if (memoriesToMerge.length >= 2) {
-        console.log('[Memory] 메모리 재요약 시작:', memoriesToMerge.length, '개 요약 병합');
-        
-        const resummarizeResponse = await resummarizeSummaries(
-          memoriesToMerge,
-          settings.summaryModel || settings.responseModel,
-          settings.geminiApiKey,
-          settings.openaiApiKey
-        );
-        
-        if (!resummarizeResponse.error && resummarizeResponse.content) {
-          // 기존 요약들 삭제
-          removeMemorySummaries(currentChat.id, memoriesToMerge.map(m => m.id));
+      // 메모리가 2개 이상이면 재요약 시도, 아니면 가장 오래된 것 삭제
+      if (memorySummaries.length >= 2) {
+        const memoriesToMerge = getMemoriesToResummarize(memorySummaries, 2);
+        if (memoriesToMerge.length >= 2) {
+          console.log('[Memory] 메모리 재요약 시작:', memoriesToMerge.length, '개 요약 병합');
           
-          // 새로운 통합 요약 추가
-          addMemorySummary(currentChat.id, {
-            content: resummarizeResponse.content,
-            summarizedMessageIds: memoriesToMerge.flatMap(m => m.summarizedMessageIds),
-            startTime: Math.min(...memoriesToMerge.map(m => m.startTime)),
-            endTime: Math.max(...memoriesToMerge.map(m => m.endTime)),
-          });
+          const resummarizeResponse = await resummarizeSummaries(
+            memoriesToMerge,
+            settings.summaryModel || settings.responseModel,
+            settings.geminiApiKey,
+            settings.openaiApiKey
+          );
           
-          console.log('[Memory] 메모리 재요약 완료');
+          if (!resummarizeResponse.error && resummarizeResponse.content) {
+            // 기존 요약들 삭제
+            removeMemorySummaries(currentChat.id, memoriesToMerge.map(m => m.id));
+            
+            // 새로운 통합 요약 추가
+            addMemorySummary(currentChat.id, {
+              content: resummarizeResponse.content,
+              summarizedMessageIds: memoriesToMerge.flatMap(m => m.summarizedMessageIds),
+              startTime: Math.min(...memoriesToMerge.map(m => m.startTime)),
+              endTime: Math.max(...memoriesToMerge.map(m => m.endTime)),
+            });
+            
+            console.log('[Memory] 메모리 재요약 완료');
+          }
         }
+      } else if (memorySummaries.length === 1) {
+        // 메모리가 1개인데 최대치 초과 시, 가장 오래된 것 삭제 (메모리 손실 발생)
+        console.log('[Memory] 메모리 최대 용량 초과 - 가장 오래된 메모리 삭제');
+        const oldestMemory = [...memorySummaries].sort((a, b) => a.createdAt - b.createdAt)[0];
+        removeMemorySummaries(currentChat.id, [oldestMemory.id]);
       }
       
       setIsSummarizing(false);
-      return; // 재요약 후 다음 사이클에서 메시지 요약 검사
+      return; // 다음 사이클에서 메시지 요약 검사
     }
     
     // 2단계: 전체 컨텍스트(메시지 + 메모리)가 임계값 초과 시 메시지 요약
     if (!shouldSummarize(currentChat.messages, TOKEN_THRESHOLD, memorySummaries)) return;
     
     const messagesToSummarize = getMessagesToSummarize(currentChat.messages, MESSAGE_SET_COUNT);
-    if (messagesToSummarize.length < 2) return;
+    if (messagesToSummarize.length < 2) {
+      // 요약할 메시지가 부족한데 토큰 초과인 경우 - 메모리 삭제로 대응
+      if (memorySummaries.length > 0) {
+        console.log('[Memory] 요약할 메시지 부족 - 가장 오래된 메모리 삭제');
+        const oldestMemory = [...memorySummaries].sort((a, b) => a.createdAt - b.createdAt)[0];
+        removeMemorySummaries(currentChat.id, [oldestMemory.id]);
+      }
+      return;
+    }
     
     setIsSummarizing(true);
     
@@ -363,24 +527,31 @@ export function ChatWindow() {
   const handleGenerateBranch = async (messageId: string, messageIndex: number) => {
     if (!currentChat || !character || isLoading) return;
 
-    setIsLoading(true);
+    setGenerating(currentChatId!);
 
     const message = currentChat.messages[messageIndex];
     const existingBranches = [message.content, ...(message.branches?.map(b => b.content) || [])];
+
+    // 자동진행 모드일 경우 시나리오 전달
+    const scenario = currentChat.mode === 'autopilot' ? currentChat.autopilotScenario : undefined;
 
     const prompt = buildBranchPrompt(
       character,
       userProfile,
       currentChat.messages,
       messageIndex,
-      existingBranches
+      existingBranches,
+      currentChat.outputLanguage || 'korean',
+      scenario
     );
 
     const response = await callAI(
       prompt,
       settings.responseModel,
       settings.geminiApiKey,
-      settings.openaiApiKey
+      settings.openaiApiKey,
+      undefined,
+      settings.gptFlexTier
     );
 
     if (!response.error && response.content) {
@@ -398,7 +569,109 @@ export function ChatWindow() {
       alert(`분기 생성 오류: ${response.error}`);
     }
 
-    setIsLoading(false);
+    setGenerating(null);
+  };
+
+  // 스티커 전송 핸들러
+  const handleSendSticker = async (sticker: Sticker) => {
+    if (!currentChat || !character || isLoading) return;
+
+    setGenerating(currentChatId!);
+
+    // 스티커 메시지 추가 (이미지로 표시, 컨텍스트에 설명 포함)
+    const stickerContextText = `[[${sticker.description}] 이모티콘을 사용자가 보냄]`;
+    
+    addMessage(currentChat.id, {
+      chatId: currentChat.id,
+      senderId: 'user',
+      content: stickerContextText,
+      imageData: sticker.imageData,
+      imageMimeType: sticker.mimeType,
+      isSticker: true,
+    });
+
+    // AI 응답 생성
+    const currentAppTime = getCurrentChatTime();
+    const currentTimeString = currentAppTime.toLocaleTimeString('ko-KR', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+    const outputLanguage = currentChat.outputLanguage || 'korean';
+    
+    // 캐릭터가 사용 가능한 스티커 목록 만들기
+    const availableStickers = stickers.filter(s => s.isCharacterUsable);
+    const stickerListForAI = availableStickers.length > 0
+      ? `\n\n사용 가능한 이모티콘: ${availableStickers.map(s => `[${s.name}: ${s.description}]`).join(', ')}\n원한다면 [[이모티콘이름]] 형식으로 이모티콘을 사용할 수 있습니다.`
+      : '';
+
+    const prompt = buildCharacterPrompt(
+      character,
+      userProfile,
+      currentChat.messages,
+      stickerContextText + stickerListForAI,
+      outputLanguage,
+      currentTimeString,
+      currentChat.theme,
+      currentChat.memorySummaries
+    );
+
+    // Gemini 모델인 경우 스트리밍 사용
+    const provider = getProviderFromModel(settings.responseModel);
+    
+    if (provider === 'gemini' && settings.geminiApiKey) {
+      const response = await callGeminiAPIStreaming(
+        prompt,
+        settings.geminiApiKey,
+        settings.responseModel,
+        undefined
+      );
+
+      if (!response.content && !response.error) {
+        setGenerating(null);
+        return;
+      }
+
+      if (!response.error && response.content) {
+        addMessage(currentChat.id, {
+          chatId: currentChat.id,
+          senderId: character.id,
+          content: response.content,
+        });
+      } else if (response.error) {
+        addMessage(currentChat.id, {
+          chatId: currentChat.id,
+          senderId: character.id,
+          content: `오류가 발생했습니다: ${response.error}`,
+        });
+      }
+    } else {
+      const response = await callAI(
+        prompt,
+        settings.responseModel,
+        settings.geminiApiKey,
+        settings.openaiApiKey,
+        undefined,
+        settings.gptFlexTier
+      );
+
+      if (!response.error && response.content) {
+        addMessage(currentChat.id, {
+          chatId: currentChat.id,
+          senderId: character.id,
+          content: response.content,
+        });
+      } else if (response.error) {
+        addMessage(currentChat.id, {
+          chatId: currentChat.id,
+          senderId: character.id,
+          content: `오류가 발생했습니다: ${response.error}`,
+        });
+      }
+    }
+
+    setGenerating(null);
   };
 
   // 유저 메시지 수정 핸들러 - 수정 후 AI 응답 재생성
@@ -416,7 +689,7 @@ export function ChatWindow() {
     const nextMessage = currentChat.messages[messageIndex + 1];
     if (nextMessage && nextMessage.senderId === character.id) {
       // AI 응답 재생성
-      setIsLoading(true);
+      setGenerating(currentChatId!);
       
       // 수정된 메시지까지의 대화 내역으로 프롬프트 생성
       const messagesUpToEdit = currentChat.messages.slice(0, messageIndex);
@@ -446,7 +719,9 @@ export function ChatWindow() {
         prompt,
         settings.responseModel,
         settings.geminiApiKey,
-        settings.openaiApiKey
+        settings.openaiApiKey,
+        undefined,
+        settings.gptFlexTier
       );
 
       if (!response.error) {
@@ -461,7 +736,7 @@ export function ChatWindow() {
         alert(`응답 재생성 오류: ${response.error}`);
       }
       
-      setIsLoading(false);
+      setGenerating(null);
     }
   };
 
@@ -502,41 +777,11 @@ export function ChatWindow() {
             {characterName}
           </div>
           
-          {/* 우측: 검색 + 언어 메뉴 */}
+          {/* 우측: 검색 */}
           <div className="flex items-center gap-[18px]">
             <svg className="w-6 h-6 cursor-pointer" fill="currentColor" viewBox="0 0 24 24">
               <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
             </svg>
-            <div className="relative" ref={languageMenuRef}>
-              <button
-                onClick={() => setShowLanguageMenu(!showLanguageMenu)}
-                className="w-6 h-6 flex items-center justify-center cursor-pointer"
-                title="언어 설정"
-              >
-                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
-                </svg>
-              </button>
-              {showLanguageMenu && (
-                <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[120px] z-50">
-                  <div className="px-3 py-1.5 text-xs text-gray-500 font-medium">출력 언어</div>
-                  {(Object.keys(languageNames) as OutputLanguage[]).map((lang) => (
-                    <button
-                      key={lang}
-                      onClick={() => {
-                        setChatOutputLanguage(currentChat.id, lang);
-                        setShowLanguageMenu(false);
-                      }}
-                      className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-100 ${
-                        (currentChat.outputLanguage || 'korean') === lang ? 'text-blue-600 font-medium' : 'text-gray-700'
-                      }`}
-                    >
-                      {languageNames[lang]}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         </div>
 
@@ -575,12 +820,20 @@ export function ChatWindow() {
                 formatTimeFunc={formatMessageTime}
                 imageData={message.imageData}
                 imageMimeType={message.imageMimeType}
+                isSticker={message.isSticker}
               />
             );
           })}
           {isLoading && (
             <div className="flex justify-center py-4">
-              <div className="animate-pulse text-gray-600 text-[13px]">응답 생성 중...</div>
+              <button 
+                onClick={handleCancelGeneration}
+                className="flex items-center gap-2 px-4 py-2 bg-white/80 hover:bg-white rounded-full shadow-sm transition-colors"
+              >
+                <div className="animate-spin w-4 h-4 border-2 border-gray-400 border-t-gray-600 rounded-full"></div>
+                <span className="text-gray-600 text-[13px]">응답 생성 중...</span>
+                <span className="text-red-500 text-[12px] font-medium">취소</span>
+              </button>
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -588,7 +841,13 @@ export function ChatWindow() {
 
         {/* 카카오톡 스타일 입력창 */}
         {currentChat.mode === 'immersion' && (
-          <ChatInput onSend={handleSendMessage} disabled={isLoading} theme={currentChat.theme} />
+          <ChatInput 
+            onSend={handleSendMessage} 
+            disabled={isLoading} 
+            theme={currentChat.theme}
+            onSendSticker={handleSendSticker}
+            onOpenStickerManager={() => setShowStickerManager(true)}
+          />
         )}
       </div>
     );
@@ -624,36 +883,6 @@ export function ChatWindow() {
             <svg className="w-5 h-5 cursor-pointer" fill="currentColor" viewBox="0 0 24 24">
               <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
             </svg>
-            <div className="relative" ref={languageMenuRef}>
-              <button
-                onClick={() => setShowLanguageMenu(!showLanguageMenu)}
-                className="w-5 h-5 flex items-center justify-center cursor-pointer"
-                title="언어 설정"
-              >
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
-                </svg>
-              </button>
-              {showLanguageMenu && (
-                <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[120px] z-50">
-                  <div className="px-3 py-1.5 text-xs text-gray-500 font-medium">출력 언어</div>
-                  {(Object.keys(languageNames) as OutputLanguage[]).map((lang) => (
-                    <button
-                      key={lang}
-                      onClick={() => {
-                        setChatOutputLanguage(currentChat.id, lang);
-                        setShowLanguageMenu(false);
-                      }}
-                      className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-100 ${
-                        (currentChat.outputLanguage || 'korean') === lang ? 'text-green-600 font-medium' : 'text-gray-700'
-                      }`}
-                    >
-                      {languageNames[lang]}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         </header>
 
@@ -692,12 +921,20 @@ export function ChatWindow() {
                 formatTimeFunc={formatMessageTime}
                 imageData={message.imageData}
                 imageMimeType={message.imageMimeType}
+                isSticker={message.isSticker}
               />
             );
           })}
           {isLoading && (
             <div className="flex justify-center py-4">
-              <div className="animate-pulse text-white/80 text-[13px]">응답 생성 중...</div>
+              <button 
+                onClick={handleCancelGeneration}
+                className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-full transition-colors"
+              >
+                <div className="animate-spin w-4 h-4 border-2 border-white/40 border-t-white/80 rounded-full"></div>
+                <span className="text-white/80 text-[13px]">응답 생성 중...</span>
+                <span className="text-red-300 text-[12px] font-medium">취소</span>
+              </button>
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -705,7 +942,13 @@ export function ChatWindow() {
 
         {/* 라인 스타일 입력창 */}
         {currentChat.mode === 'immersion' && (
-          <ChatInput onSend={handleSendMessage} disabled={isLoading} theme={currentChat.theme} />
+          <ChatInput 
+            onSend={handleSendMessage} 
+            disabled={isLoading} 
+            theme={currentChat.theme}
+            onSendSticker={handleSendSticker}
+            onOpenStickerManager={() => setShowStickerManager(true)}
+          />
         )}
       </div>
     );
@@ -763,41 +1006,11 @@ export function ChatWindow() {
             </div>
           </div>
           
-          {/* 우측: 영상통화 아이콘 + 언어 메뉴 */}
+          {/* 우측: 영상통화 아이콘 */}
           <div className="flex-1 flex justify-end items-center gap-3 mb-[15px]">
             <svg className="w-[26px] h-[26px] cursor-pointer" fill="#007AFF" viewBox="0 0 24 24">
               <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
             </svg>
-            <div className="relative" ref={languageMenuRef}>
-              <button
-                onClick={() => setShowLanguageMenu(!showLanguageMenu)}
-                className="w-6 h-6 flex items-center justify-center cursor-pointer"
-                title="언어 설정"
-              >
-                <svg className="w-5 h-5" fill="#007AFF" viewBox="0 0 24 24">
-                  <path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
-                </svg>
-              </button>
-              {showLanguageMenu && (
-                <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[120px] z-50">
-                  <div className="px-3 py-1.5 text-xs text-gray-500 font-medium">출력 언어</div>
-                  {(Object.keys(languageNames) as OutputLanguage[]).map((lang) => (
-                    <button
-                      key={lang}
-                      onClick={() => {
-                        setChatOutputLanguage(currentChat.id, lang);
-                        setShowLanguageMenu(false);
-                      }}
-                      className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-100 ${
-                        (currentChat.outputLanguage || 'korean') === lang ? 'text-[#007AFF] font-medium' : 'text-gray-700'
-                      }`}
-                    >
-                      {languageNames[lang]}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         </div>
 
@@ -854,12 +1067,20 @@ export function ChatWindow() {
                 formatTimeFunc={formatMessageTime}
                 imageData={message.imageData}
                 imageMimeType={message.imageMimeType}
+                isSticker={message.isSticker}
               />
             );
           })}
           {isLoading && (
             <div className="flex justify-center py-4">
-              <div className="animate-pulse text-[#8e8e93] text-[13px]">응답 생성 중...</div>
+              <button 
+                onClick={handleCancelGeneration}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
+              >
+                <div className="animate-spin w-4 h-4 border-2 border-gray-300 border-t-gray-500 rounded-full"></div>
+                <span className="text-[#8e8e93] text-[13px]">응답 생성 중...</span>
+                <span className="text-red-500 text-[12px] font-medium">취소</span>
+              </button>
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -867,7 +1088,13 @@ export function ChatWindow() {
 
         {/* iMessage 스타일 입력창 */}
         {currentChat.mode === 'immersion' && (
-          <ChatInput onSend={handleSendMessage} disabled={isLoading} theme={currentChat.theme} />
+          <ChatInput 
+            onSend={handleSendMessage} 
+            disabled={isLoading} 
+            theme={currentChat.theme}
+            onSendSticker={handleSendSticker}
+            onOpenStickerManager={() => setShowStickerManager(true)}
+          />
         )}
       </div>
     );
@@ -906,37 +1133,6 @@ export function ChatWindow() {
             </p>
           </div>
         </div>
-        {/* 언어 메뉴 */}
-        <div className="relative" ref={languageMenuRef}>
-          <button
-            onClick={() => setShowLanguageMenu(!showLanguageMenu)}
-            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
-            title="언어 설정"
-          >
-            <svg className="w-5 h-5 text-gray-500" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
-            </svg>
-          </button>
-          {showLanguageMenu && (
-            <div className="absolute right-0 top-10 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[120px] z-50">
-              <div className="px-3 py-1.5 text-xs text-gray-500 font-medium">출력 언어</div>
-              {(Object.keys(languageNames) as OutputLanguage[]).map((lang) => (
-                <button
-                  key={lang}
-                  onClick={() => {
-                    setChatOutputLanguage(currentChat.id, lang);
-                    setShowLanguageMenu(false);
-                  }}
-                  className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-100 ${
-                    (currentChat.outputLanguage || 'korean') === lang ? 'text-black font-medium' : 'text-gray-700'
-                  }`}
-                >
-                  {languageNames[lang]}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* 요약 중 표시기 */}
@@ -974,12 +1170,20 @@ export function ChatWindow() {
               formatTimeFunc={formatMessageTime}
               imageData={message.imageData}
               imageMimeType={message.imageMimeType}
+              isSticker={message.isSticker}
             />
           );
         })}
         {isLoading && (
           <div className="flex justify-center py-4">
-            <div className="animate-pulse text-gray-500">응답 생성 중...</div>
+            <button 
+              onClick={handleCancelGeneration}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
+            >
+              <div className="animate-spin w-4 h-4 border-2 border-gray-300 border-t-gray-500 rounded-full"></div>
+              <span className="text-gray-500 text-[13px]">응답 생성 중...</span>
+              <span className="text-red-500 text-[12px] font-medium">취소</span>
+            </button>
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -987,7 +1191,18 @@ export function ChatWindow() {
 
       {/* 입력창 (몰입 모드일 때만) */}
       {currentChat.mode === 'immersion' && (
-        <ChatInput onSend={handleSendMessage} disabled={isLoading} theme={currentChat.theme} />
+        <ChatInput 
+          onSend={handleSendMessage} 
+          disabled={isLoading} 
+          theme={currentChat.theme}
+          onSendSticker={handleSendSticker}
+          onOpenStickerManager={() => setShowStickerManager(true)}
+        />
+      )}
+
+      {/* 스티커 관리 모달 */}
+      {showStickerManager && (
+        <StickerManager onClose={() => setShowStickerManager(false)} />
       )}
     </div>
   );

@@ -11,6 +11,17 @@ interface ImageInput {
   mimeType: string; // MIME 타입 (image/jpeg, image/png, etc.)
 }
 
+// 현재 진행 중인 요청을 취소하기 위한 AbortController
+let currentAbortController: AbortController | null = null;
+
+// 진행 중인 요청 취소 함수
+export function cancelCurrentRequest(): void {
+  if (currentAbortController) {
+    currentAbortController.abort();
+    currentAbortController = null;
+  }
+}
+
 // 사용 가능한 모델 목록
 export const GEMINI_MODELS = [
   { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview' },
@@ -37,7 +48,8 @@ export async function callAI(
   modelId: string,
   geminiApiKey?: string,
   openaiApiKey?: string,
-  imageInput?: ImageInput
+  imageInput?: ImageInput,
+  gptFlexTier?: boolean
 ): Promise<AIResponse> {
   const provider = getProviderFromModel(modelId);
   
@@ -50,16 +62,17 @@ export async function callAI(
     if (!openaiApiKey) {
       return { content: '', error: 'OpenAI API 키가 설정되지 않았습니다.' };
     }
-    return callOpenAIAPI(prompt, openaiApiKey, modelId, imageInput);
+    return callOpenAIAPI(prompt, openaiApiKey, modelId, imageInput, gptFlexTier);
   }
 }
 
-// Gemini API 호출
-export async function callGeminiAPI(
+// Gemini API 스트리밍 호출 (줄 단위 콜백)
+export async function callGeminiAPIStreaming(
   prompt: string,
   apiKey: string,
   model: string = 'gemini-1.5-flash',
-  imageInput?: ImageInput
+  imageInput?: ImageInput,
+  onLine?: (line: string) => void // 줄바꿈이 완성될 때마다 호출
 ): Promise<AIResponse> {
   try {
     // Gemini 3 모델인지 확인 (thinkingLevel 지원)
@@ -106,25 +119,97 @@ export async function callGeminiAPI(
       };
     }
     
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
+    // 타임아웃 설정 (300초)
+    const controller = new AbortController();
+    currentAbortController = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
+    
+    try {
+      // 스트리밍 API 사용 (streamGenerateContent) - 에러가 바로 옴
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+        }
+      );
+      
+      if (!response.ok) {
+        clearTimeout(timeoutId);
+        currentAbortController = null;
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`API 오류: ${response.status} - ${errorData.error?.message || '알 수 없는 오류'}`);
       }
-    );
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(`API 오류: ${response.status} - ${errorData.error?.message || '알 수 없는 오류'}`);
+      // 스트리밍 응답을 줄 단위로 처리
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('스트리밍 응답을 읽을 수 없습니다.');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = ''; // 현재까지 받은 텍스트 버퍼
+      let lastProcessedIndex = 0; // 마지막으로 처리한 줄바꿈 위치
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.slice(6).trim();
+            if (jsonStr) {
+              try {
+                const data = JSON.parse(jsonStr);
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                buffer += text;
+                
+                // 줄바꿈이 있으면 콜백 호출
+                if (onLine) {
+                  let newlineIndex;
+                  while ((newlineIndex = buffer.indexOf('\n', lastProcessedIndex)) !== -1) {
+                    const completedLine = buffer.slice(lastProcessedIndex, newlineIndex).trim();
+                    if (completedLine) {
+                      onLine(completedLine);
+                    }
+                    lastProcessedIndex = newlineIndex + 1;
+                  }
+                }
+              } catch {
+                // JSON 파싱 실패 무시
+              }
+            }
+          }
+        }
+      }
+
+      // 마지막 줄 처리 (줄바꿈 없이 끝난 경우)
+      if (onLine && lastProcessedIndex < buffer.length) {
+        const remainingLine = buffer.slice(lastProcessedIndex).trim();
+        if (remainingLine) {
+          onLine(remainingLine);
+        }
+      }
+
+      clearTimeout(timeoutId);
+      currentAbortController = null;
+      return { content: buffer };
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      currentAbortController = null;
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        // 취소된 경우 조용히 빈 응답 반환 (에러 메시지 없음)
+        return { content: '', error: undefined };
+      }
+      throw fetchError;
     }
-
-    const data = await response.json();
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    return { content };
   } catch (error) {
     return {
       content: '',
@@ -133,12 +218,23 @@ export async function callGeminiAPI(
   }
 }
 
+// Gemini API 호출 (일반 모드 - 전체 응답 한 번에 반환)
+export async function callGeminiAPI(
+  prompt: string,
+  apiKey: string,
+  model: string = 'gemini-1.5-flash',
+  imageInput?: ImageInput
+): Promise<AIResponse> {
+  return callGeminiAPIStreaming(prompt, apiKey, model, imageInput);
+}
+
 // OpenAI API 호출 (GPT-5.1 Responses API)
 export async function callOpenAIAPI(
   prompt: string,
   apiKey: string,
   model: string = 'gpt-5.1-chat-latest',
-  imageInput?: ImageInput
+  imageInput?: ImageInput,
+  flexTier?: boolean
 ): Promise<AIResponse> {
   try {
     // content 배열 구성
@@ -161,19 +257,36 @@ export async function callOpenAIAPI(
       ? [{ role: 'user', content: contentArray }]
       : prompt;
     
+    // 요청 body 구성
+    const requestBody: Record<string, unknown> = {
+      model,
+      input: inputPayload,
+      reasoning: { effort: 'low' },
+      text: { verbosity: 'low' },
+    };
+    
+    // Flex 티어 사용 시 service_tier 추가
+    if (flexTier) {
+      requestBody.service_tier = 'flex';
+    }
+    
+    // 타임아웃 설정 (300초)
+    const controller = new AbortController();
+    currentAbortController = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
+    
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        input: inputPayload,
-        reasoning: { effort: 'low' },
-        text: { verbosity: 'low' },
-      }),
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
+    currentAbortController = null;
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -181,9 +294,40 @@ export async function callOpenAIAPI(
     }
 
     const data = await response.json();
-    const content = data.output_text || '';
+    
+    // Responses API의 응답 형식 파싱
+    // output_text가 있으면 사용, 없으면 output 배열에서 텍스트 추출
+    let content = '';
+    if (data.output_text) {
+      content = data.output_text;
+    } else if (data.output && Array.isArray(data.output)) {
+      // output 배열에서 텍스트 추출
+      for (const item of data.output) {
+        // type === 'message'인 경우 (기존 방식)
+        if (item.type === 'message' && item.content) {
+          for (const contentItem of item.content) {
+            if (contentItem.type === 'output_text' && contentItem.text) {
+              content += contentItem.text;
+            }
+          }
+        }
+        // type === 'output_text'인 경우 (GPT 5.2+ 직접 텍스트 형식)
+        else if (item.type === 'output_text' && item.text) {
+          content += item.text;
+        }
+      }
+    } else if (data.choices && data.choices[0]?.message?.content) {
+      // 기존 Chat Completions API 형식 (폴백)
+      content = data.choices[0].message.content;
+    }
+    
     return { content };
   } catch (error) {
+    currentAbortController = null;
+    if (error instanceof Error && error.name === 'AbortError') {
+      // 취소된 경우 조용히 빈 응답 반환 (에러 메시지 없음)
+      return { content: '', error: undefined };
+    }
     return {
       content: '',
       error: error instanceof Error ? error.message : 'API 호출 실패',
@@ -295,7 +439,16 @@ ${u.additionalInfo ? `추가 정보: ${u.additionalInfo}` : ''}
     .join('\n');
 
   const targetLanguage = languageNames[outputLanguage] || outputLanguage;
-  const languageInstruction = `\n\nIMPORTANT: You MUST respond in ${targetLanguage}.`;
+  const languageInstruction = `
+
+[CRITICAL LANGUAGE REQUIREMENT]
+You MUST respond ONLY in ${targetLanguage}. 
+This is NON-NEGOTIABLE regardless of:
+- The language used in character/user descriptions
+- The language of previous messages
+- The language of the user's input
+- Any other context
+Your ENTIRE response must be written in ${targetLanguage}. No exceptions.`;
 
   // 메모리 요약 내용 (있으면 추가)
   const memorySection = memorySummaries && memorySummaries.length > 0
@@ -392,7 +545,8 @@ export function buildAutopilotPrompt(
     .join('\n');
 
   const targetLanguage = languageNames[outputLanguage] || outputLanguage;
-  const languageInstruction = `\n- IMPORTANT: You MUST respond in ${targetLanguage}. Regardless of the scenario language, your response must be in ${targetLanguage}.`;
+  const languageInstruction = `
+- [CRITICAL LANGUAGE REQUIREMENT] You MUST respond ONLY in ${targetLanguage}. This is NON-NEGOTIABLE regardless of scenario language, character descriptions, or any other input. Your ENTIRE response must be in ${targetLanguage}.`;
 
   const prompt = `
 You are an AI that automatically continues roleplaying conversations in a ${messengerName} chat.
@@ -482,7 +636,9 @@ export function buildBranchPrompt(
   userProfile: UserProfile,
   messages: Message[],
   targetMessageIndex: number,
-  existingBranches: string[]
+  existingBranches: string[],
+  outputLanguage: string = 'korean',
+  scenario?: string
 ): string {
   let characterInfo = '';
   if (character.inputMode === 'field' && character.fieldProfile) {
@@ -513,6 +669,13 @@ export function buildBranchPrompt(
     ? `\n\n[이미 생성된 버전들 - 이와 다른 응답을 생성하세요]\n${existingBranches.map((b, i) => `버전 ${i + 1}: ${b}`).join('\n')}`
     : '';
 
+  const targetLanguage = languageNames[outputLanguage] || outputLanguage;
+
+  // 시나리오가 있으면 포함
+  const scenarioSection = scenario && scenario.trim()
+    ? `\n[Scenario/Plot Direction]\n${scenario}\n\nFollow this scenario while generating the alternative response.`
+    : '';
+
   const prompt = `
 You are an AI roleplaying as a character in a messenger chat (like KakaoTalk, LINE, or iMessage).
 You need to generate an alternative version of a response to the same situation.
@@ -520,7 +683,7 @@ This is NOT a formal conversation - it's casual messaging between people.
 
 [Character Information]
 ${characterInfo}
-
+${scenarioSection}
 [Previous Messages]
 ${conversationHistory}
 ${existingVersions}
@@ -531,6 +694,9 @@ ${existingVersions}
 - Each line break in your response will be displayed as a SEPARATE message bubble in the UI.
 - Use line breaks strategically to create natural message flow, like real texting.
 - Only output the message content itself, without any explanations or meta-commentary.
+
+[CRITICAL LANGUAGE REQUIREMENT]
+You MUST respond ONLY in ${targetLanguage}. This is NON-NEGOTIABLE regardless of the language used in character descriptions, previous messages, or any other context. Your ENTIRE response must be in ${targetLanguage}.
   `.trim();
 
   return prompt;

@@ -1,16 +1,19 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Chat, Message, ChatMode, MessageBranch, ThemeType, TimeSettings, MemorySummary, OutputLanguage } from '@/types';
+import { Chat, Message, ChatMode, MessageBranch, ThemeType, TimeSettings, MemorySummary, OutputLanguage, IMessageColor } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
 interface ChatState {
   chats: Chat[];
   currentChatId: string | null;
-  createChat: (characterId: string, theme: ThemeType) => string;
+  generatingChatId: string | null; // 현재 응답 생성 중인 채팅 ID
+  createChat: (characterId: string, theme: ThemeType, imessageColor?: IMessageColor) => string;
   deleteChat: (chatId: string) => void;
   setCurrentChat: (chatId: string | null) => void;
+  setGenerating: (chatId: string | null) => void; // 응답 생성 상태 설정
   addMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp' | 'currentBranchIndex'>) => string;
   updateMessage: (chatId: string, messageId: string, updates: Partial<Message>) => void;
+  updateBranchTranslation: (chatId: string, messageId: string, branchIndex: number, translatedContent: string | undefined) => void;
   addBranch: (chatId: string, messageId: string, branch: Omit<MessageBranch, 'id' | 'timestamp'>) => void;
   setBranchIndex: (chatId: string, messageId: string, index: number) => void;
   setChatMode: (chatId: string, mode: ChatMode) => void;
@@ -32,13 +35,16 @@ export const useChatStore = create<ChatState>()(
     (set, get) => ({
       chats: [],
       currentChatId: null,
-      createChat: (characterId, theme) => {
+      generatingChatId: null,
+      setGenerating: (chatId) => set({ generatingChatId: chatId }),
+      createChat: (characterId, theme, imessageColor) => {
         const id = uuidv4();
         const now = Date.now();
         const newChat: Chat = {
           id,
           characterId,
           theme,
+          imessageColor: theme === 'imessage' ? (imessageColor || 'blue') : undefined,
           messages: [],
           mode: 'immersion',
           createdAt: now,
@@ -88,6 +94,29 @@ export const useChatStore = create<ChatState>()(
                   ...chat,
                   messages: chat.messages.map((msg) =>
                     msg.id === messageId ? { ...msg, ...updates } : msg
+                  ),
+                  updatedAt: Date.now(),
+                }
+              : chat
+          ),
+        })),
+      updateBranchTranslation: (chatId, messageId, branchIndex, translatedContent) =>
+        set((state) => ({
+          chats: state.chats.map((chat) =>
+            chat.id === chatId
+              ? {
+                  ...chat,
+                  messages: chat.messages.map((msg) =>
+                    msg.id === messageId && msg.branches
+                      ? {
+                          ...msg,
+                          branches: msg.branches.map((branch, idx) =>
+                            idx === branchIndex
+                              ? { ...branch, translatedContent }
+                              : branch
+                          ),
+                        }
+                      : msg
                   ),
                   updatedAt: Date.now(),
                 }
