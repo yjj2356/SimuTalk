@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface HelpModalProps {
   onClose: () => void;
@@ -6,6 +6,7 @@ interface HelpModalProps {
 
 export function HelpModal({ onClose }: HelpModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+  const [openSection, setOpenSection] = useState<'model' | 'feature' | null>('model');
 
   // 외부 클릭 시 닫기
   useEffect(() => {
@@ -19,6 +20,10 @@ export function HelpModal({ onClose }: HelpModalProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [onClose]);
 
+  const toggleSection = (section: 'model' | 'feature') => {
+    setOpenSection(openSection === section ? null : section);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div 
@@ -29,9 +34,10 @@ export function HelpModal({ onClose }: HelpModalProps) {
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-white">
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
             <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <circle cx="12" cy="12" r="9" strokeWidth={2} />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 17h.01M12 14v-2a1 1 0 011-1h.01a1 1 0 011 1v0a1 1 0 01-1 1h-1v1" />
             </svg>
-            AI 모델 가이드
+            도움말
           </h2>
           <button 
             onClick={onClose}
@@ -44,7 +50,33 @@ export function HelpModal({ onClose }: HelpModalProps) {
         </div>
 
         {/* 컨텐츠 */}
-        <div className="p-6 space-y-8 overflow-y-auto max-h-[70vh]">
+        <div className="overflow-y-auto max-h-[70vh]">
+          
+          {/* 모델 가이드 섹션 */}
+          <div className="border-b border-gray-100">
+            <button 
+              onClick={() => toggleSection('model')}
+              className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            >
+              <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                모델 가이드
+              </h3>
+              <svg 
+                className={`w-5 h-5 text-gray-400 transition-transform ${openSection === 'model' ? 'rotate-180' : ''}`}
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            
+            {openSection === 'model' && (
+              <div className="px-6 pb-6 space-y-6 animate-in fade-in slide-in-from-top-2 duration-200"
+              >
           
           {/* 언어별 추천 */}
           <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
@@ -108,19 +140,6 @@ export function HelpModal({ onClose }: HelpModalProps) {
             </div>
           </div>
 
-          {/* 번역 명령어 */}
-          <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
-            <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
-              <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
-              </svg>
-              번역 명령어
-            </h3>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              <span className="font-mono bg-gray-200 px-1.5 py-0.5 rounded text-gray-800">/t 메시지</span>로 입력하면 메시지가 <span className="font-medium text-gray-900">채팅방 언어로 번역</span>되어 전송되고, AI가 자동으로 응답합니다.
-            </p>
-          </div>
-
           <div className="space-y-6 pt-2">
             <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
               <span className="text-sm font-bold text-gray-900">GPT 시리즈</span>
@@ -150,6 +169,107 @@ export function HelpModal({ onClose }: HelpModalProps) {
               </svg>
               <p><span className="font-medium text-gray-700">Flex Tier</span>를 활성화하면 GPT 모델을 더 저렴하게 사용할 수 있습니다. 단, 처리 속도가 느려질 수 있습니다.</p>
             </div>
+          </div>
+
+              </div>
+            )}
+          </div>
+
+          {/* 기능 가이드 섹션 */}
+          <div className="border-b border-gray-100">
+            <button 
+              onClick={() => toggleSection('feature')}
+              className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            >
+              <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                기능 가이드
+              </h3>
+              <svg 
+                className={`w-5 h-5 text-gray-400 transition-transform ${openSection === 'feature' ? 'rotate-180' : ''}`}
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            
+            {openSection === 'feature' && (
+              <div className="px-6 pb-6 space-y-6 animate-in fade-in slide-in-from-top-2 duration-200">
+                
+                {/* 번역 명령어 */}
+                <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
+                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                    </svg>
+                    번역 명령어
+                  </h4>
+                  <p className="text-sm text-gray-600 leading-relaxed mb-2">
+                    <span className="font-mono bg-gray-200 px-1.5 py-0.5 rounded text-gray-800">/t 메시지</span>로 입력하면 메시지가 <span className="font-medium text-gray-900">채팅방 언어로 번역</span>되어 전송되고, AI가 자동으로 응답합니다.
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    예: 일본어 채팅방에서 <span className="font-mono text-gray-700">/t 안녕하세요</span> → <span className="font-mono text-gray-700">こんにちは</span>로 번역되어 전송됩니다.
+                  </p>
+                </div>
+
+                {/* 이미지 인식 */}
+                <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
+                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    이미지 인식
+                  </h4>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    채팅 입력창에서 <span className="font-medium text-gray-900">클립보드 이미지를 붙여넣기</span>하면 AI가 이미지를 분석하여 대화할 수 있습니다. (Vision 모델 필요)
+                  </p>
+                </div>
+
+                {/* 이모티콘 */}
+                <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
+                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    이모티콘
+                  </h4>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    채팅 입력창 왼쪽의 <span className="font-medium text-gray-900">스티커 아이콘</span>을 클릭하여 다양한 이모티콘을 추가하고 사용할 수 있습니다.
+                  </p>
+                </div>
+
+                {/* 장기기억 */}
+                <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
+                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    장기기억
+                  </h4>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    캐릭터 설정에서 <span className="font-medium text-gray-900">장기기억 기능</span>을 활성화하면 AI가 이전 대화 내용을 기억하고 더욱 자연스러운 대화를 이어갈 수 있습니다.
+                  </p>
+                </div>
+
+                {/* 테마 설정 */}
+                <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
+                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                    </svg>
+                    테마 설정
+                  </h4>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    상단 메뉴의 <span className="font-medium text-gray-900">설정 → 테마</span>에서 배경색, 글꼴, 말풍선 스타일 등을 자유롭게 커스터마이징할 수 있습니다.
+                  </p>
+                </div>
+
+              </div>
+            )}
           </div>
 
         </div>
