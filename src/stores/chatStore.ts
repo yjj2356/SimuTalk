@@ -23,6 +23,7 @@ interface ChatState {
   setAutopilotRunning: (chatId: string, running: boolean) => void;
   setChatTimeSettings: (chatId: string, timeSettings: TimeSettings | undefined) => void;
   setChatOutputLanguage: (chatId: string, language: OutputLanguage) => void;
+  setShortResponseMode: (chatId: string, enabled: boolean) => void;
   // 메모리 관련
   addMemorySummary: (chatId: string, summary: Omit<MemorySummary, 'id' | 'createdAt'>) => void;
   removeMemorySummaries: (chatId: string, summaryIds: string[]) => void;
@@ -268,6 +269,14 @@ export const useChatStore = create<ChatState>()(
           chats: state.chats.map((chat) =>
             chat.id === chatId
               ? { ...chat, outputLanguage, updatedAt: Date.now() }
+              : chat
+          ),
+        })),
+      setShortResponseMode: (chatId, shortResponseMode) =>
+        set((state) => ({
+          chats: state.chats.map((chat) =>
+            chat.id === chatId
+              ? { ...chat, shortResponseMode, updatedAt: Date.now() }
               : chat
           ),
         })),

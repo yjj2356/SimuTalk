@@ -4,3 +4,4 @@ export { ChatWindow } from './ChatWindow';
 export { AutopilotControls } from './AutopilotControls';
 export { TimeControls } from './TimeControls';
 export { PopoutChatWindow } from './PopoutChatWindow';
+export { ChatSettingsPanel } from './ChatSettingsPanel';

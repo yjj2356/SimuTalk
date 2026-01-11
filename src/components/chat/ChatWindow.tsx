@@ -240,7 +240,8 @@ export function ChatWindow() {
           outputLanguage,
           currentTimeString,
           currentChat.theme,
-          currentChat.memorySummaries
+          currentChat.memorySummaries,
+          currentChat.shortResponseMode
         );
 
         // Gemini 모델인 경우 스트리밍 사용 (응답 완료 후 하나의 메시지로 저장)
@@ -345,7 +346,8 @@ export function ChatWindow() {
       outputLanguage,
       currentTimeString,
       currentChat.theme,
-      currentChat.memorySummaries
+      currentChat.memorySummaries,
+      currentChat.shortResponseMode
     );
 
     // 이미지가 있으면 프롬프트에 이미지 설명 요청 추가
@@ -625,7 +627,8 @@ export function ChatWindow() {
       outputLanguage,
       currentTimeString,
       currentChat.theme,
-      currentChat.memorySummaries
+      currentChat.memorySummaries,
+      currentChat.shortResponseMode
     );
 
     // Gemini 모델인 경우 스트리밍 사용
@@ -734,7 +737,9 @@ export function ChatWindow() {
       newContent,
       outputLanguage,
       currentTimeString,
-      currentChat.theme
+      currentChat.theme,
+      currentChat.memorySummaries,
+      currentChat.shortResponseMode
     );
 
     const response = await callAI(

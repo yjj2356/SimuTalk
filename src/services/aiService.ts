@@ -105,7 +105,7 @@ export async function callGeminiAPIStreaming(
         temperature: 1.0,
         topK: 40,
         topP: 0.95,
-        maxOutputTokens: 1024,
+        maxOutputTokens: 8192,
       },
     };
     
@@ -388,7 +388,8 @@ export function buildCharacterPrompt(
   outputLanguage: string = 'korean',
   currentTime?: string,
   messengerTheme: string = 'kakao',
-  memorySummaries?: MemorySummary[]
+  memorySummaries?: MemorySummary[],
+  shortResponseMode?: boolean
 ): string {
   let characterInfo = '';
   if (character.inputMode === 'field' && character.fieldProfile) {
@@ -456,6 +457,11 @@ Your ENTIRE response must be written in ${targetLanguage}. No exceptions.`;
     ? `\n[Long-term Memory - Previous Conversation Summary]\n${memorySummaries.map(m => m.content).join('\n\n---\n\n')}\n`
     : '';
 
+  // 짧은 응답 모드 지시 (활성화 시 최대 3줄로 제한)
+  const shortResponseInstruction = shortResponseMode
+    ? `\n- [SHORT RESPONSE MODE] You MUST limit your response to MAXIMUM 3 separate message bubbles (3 line breaks maximum). Keep each message brief and concise.`
+    : '';
+
   const prompt = `
 You are an AI roleplaying as a character in a ${messengerName} chat.
 This is a TEXT MESSAGING conversation - you are NOT meeting in person.
@@ -481,7 +487,108 @@ ${userMessage}
 - Each line break in your response will be displayed as a SEPARATE message bubble in the UI.
 - Use line breaks strategically to create natural message flow, like real texting.
 - Only output the message content itself, without any explanations or meta-commentary.
-- If there is long-term memory, use it to maintain consistency with past conversations.${languageInstruction}
+- If there is long-term memory, use it to maintain consistency with past conversations.${shortResponseInstruction}${languageInstruction}
+  `.trim();
+
+  return prompt;
+}
+
+// 선톡 (캐릭터가 먼저 보내는 메시지) 프롬프트 생성
+export function buildFirstMessagePrompt(
+  character: Character,
+  userProfile: UserProfile,
+  messages: Message[],
+  outputLanguage: string = 'korean',
+  currentTime?: string,
+  messengerTheme: string = 'kakao',
+  shortResponseMode?: boolean
+): string {
+  let characterInfo = '';
+  if (character.inputMode === 'field' && character.fieldProfile) {
+    const p = character.fieldProfile;
+    characterInfo = `
+이름: ${p.name}
+성격: ${p.personality}
+말투: ${p.speechStyle}
+관계: ${p.relationship}
+세계관: ${p.worldSetting}
+${p.additionalInfo ? `추가 정보: ${p.additionalInfo}` : ''}
+    `.trim();
+  } else if (character.freeProfile) {
+    characterInfo = character.freeProfile;
+  }
+
+  let userInfo = '';
+  if (userProfile.inputMode === 'field' && userProfile.fieldProfile) {
+    const u = userProfile.fieldProfile;
+    userInfo = `
+이름: ${u.name}
+성격: ${u.personality}
+외모: ${u.appearance}
+설정: ${u.settings}
+${u.additionalInfo ? `추가 정보: ${u.additionalInfo}` : ''}
+    `.trim();
+  } else if (userProfile.freeProfile) {
+    userInfo = userProfile.freeProfile;
+  }
+
+  const messengerName = messengerNames[messengerTheme] || 'messenger app';
+  const timeInfo = currentTime ? `[현재 시각: ${currentTime}]` : '';
+  
+  const charName = character.fieldProfile?.name || character.freeProfileName || '캐릭터';
+  
+  // 이전 대화 내역
+  const conversationHistory = messages.length > 0
+    ? messages.slice(-10).map((msg) => {
+        const sender = msg.senderId === 'user' ? '유저' : charName;
+        const msgTime = new Date(msg.timestamp).toLocaleTimeString('ko-KR', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        });
+        return `[${msgTime}] ${sender}: ${msg.content}`;
+      }).join('\n')
+    : '(대화 시작 전)';
+
+  const targetLanguage = languageNames[outputLanguage] || outputLanguage;
+  const languageInstruction = `
+
+[CRITICAL LANGUAGE REQUIREMENT]
+You MUST respond ONLY in ${targetLanguage}. Your ENTIRE response must be written in ${targetLanguage}. No exceptions.`;
+
+  const shortResponseInstruction = shortResponseMode
+    ? `\n- [SHORT RESPONSE MODE] You MUST limit your response to MAXIMUM 3 separate message bubbles (3 line breaks maximum). Keep each message brief and concise.`
+    : '';
+
+  const contextInstruction = messages.length > 0
+    ? `Based on the previous conversation context, send a natural follow-up message. The user hasn't responded for a while, so initiate conversation naturally.`
+    : `This is the START of a new conversation. Send a natural first message to begin chatting.`;
+
+  const prompt = `
+You are an AI roleplaying as a character in a ${messengerName} chat.
+You are sending a message FIRST to the user - they haven't messaged you yet (or haven't responded).
+This is a TEXT MESSAGING conversation through ${messengerName}.
+${timeInfo}
+
+[Character Information]
+${characterInfo}
+
+[User Information]
+${userInfo}
+
+[Previous Messages]
+${conversationHistory}
+
+[TASK]
+${contextInstruction}
+
+[IMPORTANT RULES]
+- You are texting through ${messengerName}, NOT meeting face-to-face.
+- Send a natural, in-character message to initiate or continue the conversation.
+- Reflect the character's personality and speech style.
+- Each line break in your response will be displayed as a SEPARATE message bubble in the UI.
+- Use line breaks strategically to create natural message flow, like real texting.
+- Only output the message content itself, without any explanations or meta-commentary.${shortResponseInstruction}${languageInstruction}
   `.trim();
 
   return prompt;
@@ -534,14 +641,15 @@ export function buildAutopilotPrompt(
   const conversationHistory = messages
     .slice(-10)
     .map((msg) => {
-      const sender = msg.senderId === 'user' ? userName : characterName;
+      // 역할 태그를 명확하게 구분: [user:이름] 또는 [char:이름]
+      const roleTag = msg.senderId === 'user' ? `[user:${userName}]` : `[char:${characterName}]`;
       // 메시지에 타임스탬프 추가
       const msgTime = new Date(msg.timestamp).toLocaleTimeString('ko-KR', {
         hour: 'numeric',
         minute: '2-digit',
         hour12: true,
       });
-      return `[${msgTime}] [${sender}]: ${msg.content}`;
+      return `[${msgTime}] ${roleTag}: ${msg.content}`;
     })
     .join('\n');
 
@@ -568,16 +676,19 @@ ${userInfo}
 ${conversationHistory || '(대화 시작)'}
 
 [OUTPUT FORMAT - VERY IMPORTANT]
-You MUST output in this EXACT format:
-[SPEAKER_NAME]: message content here
+You MUST output in this EXACT format with role prefix:
+[user:${userName}]: message content here
+OR
+[char:${characterName}]: message content here
 
-Where SPEAKER_NAME is either "${userName}" or "${characterName}".
+The [user:...] prefix indicates the user's message.
+The [char:...] prefix indicates the character's message.
 Choose who speaks next based on the conversation flow and scenario.
 
 [IMPORTANT RULES]
 - The characters are texting through ${messengerName}, NOT meeting face-to-face
 - Decide who should speak next based on the conversation context
-- Output EXACTLY in the format: [SPEAKER_NAME]: message
+- Output EXACTLY in the format: [user:NAME]: message OR [char:NAME]: message
 - Write a natural message that reflects the speaker's personality
 - Each line break will be displayed as a SEPARATE message bubble
 - Only output ONE speaker's message at a time
@@ -593,35 +704,50 @@ export function parseAutopilotResponse(
   userName: string,
   _characterName: string
 ): { isUser: boolean; content: string } {
-  // [이름]: 제거 함수
+  // [user:이름]: 또는 [char:이름]: 또는 [이름]: 형식 제거 함수
   const cleanLine = (line: string): string => {
-    return line.replace(/^\[[^\]]+\]:\s*/, '').replace(/^[^:\n]+:\s*/, '');
+    // [user:이름]: 또는 [char:이름]: 형식 먼저 시도
+    let cleaned = line.replace(/^\[(user|char):[^\]]+\]:\s*/i, '');
+    // 기존 [이름]: 형식도 처리
+    cleaned = cleaned.replace(/^\[[^\]]+\]:\s*/, '');
+    // 이름: 형식도 처리
+    cleaned = cleaned.replace(/^[^:\n]+:\s*/, '');
+    return cleaned;
   };
 
   // 첫 번째 줄에서 화자 판단
   const firstLine = response.split('\n')[0];
   
-  // [이름]: 내용 형식 파싱
-  const match = firstLine.match(/^\[([^\]]+)\]:/);
+  // [user:이름]: 또는 [char:이름]: 형식 파싱 (새 형식)
+  const roleMatch = firstLine.match(/^\[(user|char):([^\]]+)\]:/i);
   let isUser = false;
   
-  if (match) {
-    const speaker = match[1].trim();
-    isUser = speaker === userName || 
-             speaker.toLowerCase() === 'user' || 
-             speaker === '유저';
+  if (roleMatch) {
+    // 역할 태그로 직접 판별 (이름이 같아도 구분 가능)
+    const role = roleMatch[1].toLowerCase();
+    isUser = role === 'user';
   } else {
-    // 이름: 형식 시도
-    const simpleMatch = firstLine.match(/^([^:]+):/);
-    if (simpleMatch) {
-      const speaker = simpleMatch[1].trim();
+    // 기존 [이름]: 형식 파싱 (레거시 호환)
+    const match = firstLine.match(/^\[([^\]]+)\]:/);
+    
+    if (match) {
+      const speaker = match[1].trim();
       isUser = speaker === userName || 
                speaker.toLowerCase() === 'user' || 
                speaker === '유저';
+    } else {
+      // 이름: 형식 시도
+      const simpleMatch = firstLine.match(/^([^:]+):/);
+      if (simpleMatch) {
+        const speaker = simpleMatch[1].trim();
+        isUser = speaker === userName || 
+                 speaker.toLowerCase() === 'user' || 
+                 speaker === '유저';
+      }
     }
   }
   
-  // 모든 줄에서 [이름]: 제거
+  // 모든 줄에서 역할 태그 제거
   const cleanedContent = response
     .split('\n')
     .map(line => cleanLine(line.trim()))

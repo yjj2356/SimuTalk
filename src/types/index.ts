@@ -122,6 +122,8 @@ export interface Character {
   freeProfile?: string;
   freeProfileImage?: string; // 자유 모드에서의 프로필 이미지
   freeProfileName?: string; // 자유 모드에서의 이름
+  firstMessageEnabled?: boolean; // 선톡 기능 활성화
+  firstMessageFrequency?: number; // 선톡 빈도 (분 단위, 0 = 수동만)
   createdAt: number;
   updatedAt: number;
 }
@@ -178,6 +180,7 @@ export interface Chat {
   isAutopilotRunning?: boolean;
   timeSettings?: TimeSettings; // 채팅방별 시간 설정
   outputLanguage?: OutputLanguage; // 채팅방별 출력 언어 설정
+  shortResponseMode?: boolean; // 짧은 응답 모드 (최대 3줄)
   createdAt: number;
   updatedAt: number;
 }

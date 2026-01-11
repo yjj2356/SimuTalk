@@ -152,7 +152,8 @@ export function PopupView({ chatId }: PopupViewProps) {
         outputLanguage,
         currentTimeString,
         currentChat.theme,
-        currentChat.memorySummaries
+        currentChat.memorySummaries,
+        currentChat.shortResponseMode
       );
 
       const finalPrompt = imageData 
@@ -211,7 +212,8 @@ export function PopupView({ chatId }: PopupViewProps) {
       outputLanguage,
       currentTimeString,
       currentChat.theme,
-      currentChat.memorySummaries
+      currentChat.memorySummaries,
+      currentChat.shortResponseMode
     );
 
     // 이미지가 있으면 프롬프트에 이미지 설명 요청 추가
@@ -421,7 +423,9 @@ export function PopupView({ chatId }: PopupViewProps) {
       newContent,
       outputLanguage,
       currentTimeString,
-      currentChat.theme
+      currentChat.theme,
+      currentChat.memorySummaries,
+      currentChat.shortResponseMode
     );
 
     const response = await callAI(

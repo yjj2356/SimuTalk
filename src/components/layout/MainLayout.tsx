@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ContactList } from '@/components/contacts';
-import { ChatWindow, AutopilotControls, TimeControls, PopoutChatWindow } from '@/components/chat';
+import { ChatWindow, AutopilotControls, TimeControls, PopoutChatWindow, ChatSettingsPanel } from '@/components/chat';
 import { CharacterForm, UserProfileForm } from '@/components/profile';
 import { SettingsPanel, ThemeSettingsPanel } from '@/components/settings';
 import { StickerManager } from '@/components/sticker';
@@ -244,6 +244,25 @@ export function MainLayout() {
         {currentChat && (
           <div className="absolute bottom-6 right-6 z-20 w-[240px] flex flex-col gap-2">
             <TimeControls chatId={currentChat.id} />
+            
+            {/* Chat Settings (Short Response Mode, First Message) */}
+            <div 
+              className="backdrop-blur rounded-lg border shadow-sm p-3"
+              style={{ 
+                backgroundColor: panelBgColor, 
+                borderColor: themeCustomization.panelBorderColor,
+                color: panelTextColor,
+              }}
+            >
+              <div className="text-[10px] font-semibold mb-2 uppercase tracking-wider" style={{ opacity: 0.5 }}>
+                Chat
+              </div>
+              <ChatSettingsPanel 
+                chatId={currentChat.id} 
+                panelTextColor={panelTextColor}
+                accentColor={accentColor}
+              />
+            </div>
             
             {/* View Options Card */}
             <div 

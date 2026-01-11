@@ -3,6 +3,7 @@ import { ChatBubble } from './ChatBubble';
 import { ChatInput } from './ChatInput';
 import { AutopilotControls } from './AutopilotControls';
 import { TimeControls } from './TimeControls';
+import { ChatSettingsPanel } from './ChatSettingsPanel';
 import { useSettingsStore, useChatStore, useCharacterStore, useUserStore, useStickerStore } from '@/stores';
 import { getThemeConfig } from '@/utils/theme';
 import { OutputLanguage, Sticker } from '@/types';
@@ -400,7 +401,8 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
       outputLanguage,
       currentTimeString,
       currentChat.theme,
-      currentChat.memorySummaries
+      currentChat.memorySummaries,
+      currentChat.shortResponseMode
     );
 
     const provider = getProviderFromModel(settings.responseModel);
@@ -507,7 +509,8 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
           outputLanguage,
           currentTimeString,
           currentChat.theme,
-          currentChat.memorySummaries
+          currentChat.memorySummaries,
+          currentChat.shortResponseMode
         );
 
         const provider = getProviderFromModel(settings.responseModel);
@@ -607,7 +610,8 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
       outputLanguage,
       currentTimeString,
       currentChat.theme,
-      currentChat.memorySummaries
+      currentChat.memorySummaries,
+      currentChat.shortResponseMode
     );
 
     const finalPrompt = imageData 
@@ -722,7 +726,8 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
       outputLanguage,
       currentTimeString,
       currentChat.theme,
-      currentChat.memorySummaries
+      currentChat.memorySummaries,
+      currentChat.shortResponseMode
     );
 
     const response = await callAI(
@@ -895,6 +900,11 @@ export function PopoutChatWindow({ chatId, onClose }: PopoutChatWindowProps) {
             )}
 
             <TimeControls chatId={chatId} compact />
+            
+            {/* 채팅 설정 (짧은 응답 모드, 선톡) */}
+            <div className="pt-2 border-t border-gray-200">
+              <ChatSettingsPanel chatId={chatId} compact />
+            </div>
           </div>
         )}
 

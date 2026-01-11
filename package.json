@@ -1,7 +1,7 @@
 {
   "name": "simutalk",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "SimuTalk - AI Chat Simulation App",
   "author": "SimuTalk Team",
   "main": "electron/main.cjs",
